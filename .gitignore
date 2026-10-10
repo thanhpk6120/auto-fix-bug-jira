@@ -1,0 +1,21 @@
+# Environment variables (chỉ giữ .env.example)
+.env
+.env.local
+
+# Cache and temporary files
+local_cache/
+evidence/
+.worktrees/
+pending-prs.json
+
+# Dependencies and build outputs
+node_modules/
+dist/
+target/
+*.log
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

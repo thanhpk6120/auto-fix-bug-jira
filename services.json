@@ -1,0 +1,28 @@
+{
+  "services": [
+    {
+      "name": "api",
+      "path": "services/api",
+      "deployUrl": "http://dev-demo.local:8080",
+      "healthPath": "/actuator/health"
+    },
+    {
+      "name": "web",
+      "path": "services/web",
+      "deployUrl": "http://dev-demo.local:5173",
+      "healthPath": "/"
+    },
+    {
+      "name": "api",
+      "path": "services-2/api",
+      "deployUrl": "http://dev-demo.local:8081",
+      "healthPath": "/actuator/health"
+    },
+    {
+      "name": "web",
+      "path": "services-2/web",
+      "deployUrl": "http://dev-demo.local:5174",
+      "healthPath": "/"
+    }
+  ]
+}
