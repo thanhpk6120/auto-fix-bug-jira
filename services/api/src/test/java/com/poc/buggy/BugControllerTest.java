@@ -35,4 +35,39 @@ class BugControllerTest {
                .andExpect(status().isOk())
                .andExpect(content().string("Cannot divide by zero"));
     }
+
+    @Test
+    void testCalculate_withOne_shouldReturn100() throws Exception {
+        mockMvc.perform(get("/api/calculate").param("divisor", "1"))
+               .andExpect(status().isOk())
+               .andExpect(content().string("100"));
+    }
+
+    @Test
+    void testCalculate_withNegative_shouldReturnNegative() throws Exception {
+        mockMvc.perform(get("/api/calculate").param("divisor", "-5"))
+               .andExpect(status().isOk())
+               .andExpect(content().string("-20"));
+    }
+
+    @Test
+    void testCalculate_withNegativeOne_shouldReturnNegative100() throws Exception {
+        mockMvc.perform(get("/api/calculate").param("divisor", "-1"))
+               .andExpect(status().isOk())
+               .andExpect(content().string("-100"));
+    }
+
+    @Test
+    void testCalculate_with100_shouldReturn1() throws Exception {
+        mockMvc.perform(get("/api/calculate").param("divisor", "100"))
+               .andExpect(status().isOk())
+               .andExpect(content().string("1"));
+    }
+
+    @Test
+    void testCalculate_with2_shouldReturn50() throws Exception {
+        mockMvc.perform(get("/api/calculate").param("divisor", "2"))
+               .andExpect(status().isOk())
+               .andExpect(content().string("50"));
+    }
 }
