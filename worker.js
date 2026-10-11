@@ -469,19 +469,25 @@ async function checkJiraForBugs() {
             const { projectKey } = project;
             const jql = `project = ${projectKey} AND issuetype = Bug AND status IN (\"To Do\", \"Selected for Development\", \"Backlog\") AND (labels = \"auto-fix\" OR summary ~ \"\\[AUTO-BUG\\]\") AND labels != \"auto-fix-processing\"`;
             const searchUrl = `https://${JIRA_DOMAIN}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
-            
+
+            console.log(`[+] Đang quét Jira cho dự án ${projectKey}...`);
             const res = await fetch(searchUrl, {
                 method: 'GET',
                 headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
             });
 
-            if (!res.ok) continue;
+            if (!res.ok) {
+                console.error(`[!] Lỗi tìm kiếm Jira (${projectKey}): HTTP ${res.status} - ${await res.text()}`);
+                continue;
+            }
 
             const data = await res.json();
             const issues = data.issues || [];
+            console.log(`[+] Tìm thấy ${issues.length} bug cho dự án ${projectKey}`);
 
             if (issues.length > 0) {
                 const issue = issues[0];
+                console.log(`[+] Đang gắn nhãn auto-fix-processing cho ${issue.key}...`);
                 try {
                     await fetch(`https://${JIRA_DOMAIN}/rest/api/3/issue/${issue.key}`, {
                         method: 'PUT',
