@@ -8,8 +8,11 @@ import org.springframework.web.bind.annotation.*;
 public class BugController {
 
     @GetMapping("/calculate")
-    public Object calculate() {
-        int x = 100 / 0;
+    public Object calculate(@RequestParam(defaultValue = "0") int divisor) {
+        if (divisor == 0) {
+            return "Cannot divide by zero";
+        }
+        int x = 100 / divisor;
         return x;
     }
 }
