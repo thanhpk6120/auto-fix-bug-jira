@@ -40,12 +40,12 @@ x-environment: &default-environment
   PORT: 8000
   GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN} # Thay bằng domain thực tế nếu deploy
   DEFAULT_FROM_EMAIL: alerts@yourdomain.com
-  EMAIL_URL: smtp://smtp.mailtrap.io:2525 # Cấu hình SMTP nếu cần
+  EMAIL_URL: consolemail:// # Không cần SMTP, in email ra log container
   CELERY_WORKER_AUTOSCALE: "1,3"
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16
     environment:
       POSTGRES_USER: glitchtip
       POSTGRES_PASSWORD: glitchtip_password
@@ -55,7 +55,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:7
     restart: unless-stopped
 
   web:
