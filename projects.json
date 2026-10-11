@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "projectKey": "KANBAN",
+      "path": "."
+    },
+    {
+      "projectKey": "ECOM",
+      "path": "services-2"
+    }
+  ]
+}

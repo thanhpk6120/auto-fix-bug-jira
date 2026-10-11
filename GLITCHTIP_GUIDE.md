@@ -2,9 +2,8 @@
 
 Tài liệu này hướng dẫn chi tiết từng bước (step-by-step) cách đưa GlitchTip vào mô hình thiết kế hệ thống Auto-Fix Bug để làm Error Tracking & Triage trung tâm, Jira làm Message Bus, và loại bỏ hoàn toàn Dispatcher trung gian (App không còn gọi trực tiếp Jira API).
 
-Luồng xử lý mới:
-`[Apps: FE/BE] -> [Sentry SDK] -> [GlitchTip v4.x] -> [Webhook Alert] -> [Jira Automation Rule] -> [Jira Ticket [AUTO-BUG]] -> [worker.js]`
-
+Luồng xử lý Event-Driven (Singleton Master Worker):
+`[Apps: FE/BE] -> [Sentry SDK] -> [GlitchTip v4.x] -> [Webhook Alert] -> [Jira Automation Rule] -> [Jira Ticket [AUTO-BUG] + service:*] -> [worker.js (duy nhất)]`
 ---
 
 ## Phần 1: Cài đặt GlitchTip bằng Docker Compose
@@ -199,15 +198,15 @@ sentry:
 
 ## Phần 4: Cấu hình Jira Automation
 
-Tạo Rule trên Jira Cloud để tự động nhận lỗi và tạo Issue.
+Tạo Rule trên Jira Cloud để tự động nhận lỗi từ GlitchTip Webhook, tạo Issue và định tuyến.
 
 1. Truy cập **Project Settings** > **Automation** > **Rules** > **Create rule**.
 2. **Trigger:** Chọn **Incoming Webhook**.
-   - Jira sẽ cung cấp cho bạn một **Webhook URL**. Copy URL này.
-   - Trạng thái: Chọn "No issue provided" hoặc để mặc định tuỳ Jira cloud.
+   - Copy **Webhook URL**.
+   - Trạng thái: Chọn "No issue provided" hoặc tuỳ cấu hình của Jira Cloud.
 3. **Action:** Chọn **Create issue**.
-4. Thiết lập thông số Issue với **Smart Values** của Jira Automation:
-   - **Project:** Chọn dự án hiện tại.
+4. Thiết lập thông số Issue với **Smart Values**:
+   - **Project:** Chọn dự án hiện tại (vd: KANBAN hoặc ECOM).
    - **Issue Type:** Bug.
    - **Summary:** `[AUTO-BUG] {{webhookData.data.issue.title}}`
    - **Description:** 
@@ -222,9 +221,8 @@ Tạo Rule trên Jira Cloud để tự động nhận lỗi và tạo Issue.
      
      *Link chi tiết (GlitchTip):* {{webhookData.data.issue.web_url}}
      ```
-   - **Labels:** `auto-fix`, `glitchtip`
-5. Lưu Rule, đặt tên (vd: `GlitchTip-to-Jira Auto-Fix`) và bật **Turn it on**.
-
+   - **Labels:** Gắn cứng nhãn `auto-fix`, và tự động trích xuất service thông qua biến `service:{{webhookData.data.issue.project.name}}` (ví dụ `service:api`).
+5. Lưu Rule, đặt tên (vd: `GlitchTip Auto-Fix Routing`) và bật **Turn it on**.
 ---
 
 ## Phần 5: Cấu hình Alert Webhook trên GlitchTip
@@ -239,19 +237,30 @@ Tạo Rule trên Jira Cloud để tự động nhận lỗi và tạo Issue.
 
 ---
 
-## Phần 6: Quy trình thêm dự án mới (Zero code change)
+## Phần 6: Quy trình thêm dự án mới (Zero Code Change & Bốn tầng phòng thủ)
 
-Khi có dự án (service) mới, bạn không cần phải sửa hay viết code điều phối nào. Chỉ cần:
-1. Tạo Project mới trên GlitchTip -> Lấy DSN.
-2. Gắn DSN vào dự án mới qua file `.env` hoặc cấu hình chuẩn (Sentry SDK config).
-3. Đảm bảo Jira Automation Webhook Rule vẫn hoạt động hoặc tạo Rule mới cho Jira Project tương ứng nếu dự án khác.
-4. Tạo Alert Webhook trên Project GlitchTip mới trỏ vào Jira Webhook URL.
+Hệ thống áp dụng kiến trúc **Singleton Master Worker**: bạn chỉ chạy **DUY NHẤT 1 file `worker.js`** phục vụ N dự án. Khi có service/dự án mới, tuyệt đối không tạo thêm worker riêng.
 
----
+Quy trình 4 tầng phòng thủ an toàn:
+1. **Tầng 1 (GlitchTip)**: Tạo Project mới (lấy DSN), lỗi định danh theo slug môi trường và project.
+2. **Tầng 2 (Jira Automation)**: Tạo Alert Webhook trỏ vào Jira Webhook. Automation rule phân loại slug sang nhãn `service:*` (ví dụ: `service:api` hoặc `service:web`).
+3. **Tầng 3 (Singleton Worker Mapping)**: Bổ sung cấu hình vào file `projects.json` gốc:
+   ```json
+   {
+     "projects": [
+       { "projectKey": "KANBAN", "path": "." },
+       { "projectKey": "ECOM", "path": "services-2" }
+     ]
+   }
+   ```
+4. **Tầng 4 (Worktree Isolation & Fail-Safe Abort)**: Dựa vào `projectKey` -> `path` (từ `projects.json`) và nhãn `service:*` (từ Jira), Worker suy luận ra thư mục đích (vd: `services-2/api`). Nếu thiếu nhãn hoặc cấu hình thư mục sai lệch, **Worker sẽ Fail-Safe Abort** (huỷ bỏ ticket an toàn), tuyệt đối không sửa nhầm mã nguồn chéo repo.
 
-## Phần 7: Kiểm thử end-to-end (Test flow)
+*(Không cần khởi động lại worker, `projects.json` được reload tự động vào RAM).*
 
-1. Mở ứng dụng, thao tác để tạo ra một Exception (vd: Bấm nút ném lỗi trong React, hoặc gọi API chia cho 0).
-2. Kiểm tra **GlitchTip**: Issue mới phải xuất hiện trong tab *Issues*.
-3. Kiểm tra **Jira**: Issue mới có tiền tố `[AUTO-BUG]` và nhãn `auto-fix` phải xuất hiện trong bảng Kanban/Backlog với thông tin chi tiết lỗi và link về GlitchTip.
-4. Kiểm tra **Terminal**: Script `worker.js` sẽ phát hiện ticket `[AUTO-BUG]`, gửi Telegram alert, và bắt đầu tiến trình Claude Code tự sửa mã nguồn.
+## Phần 7: Kiểm thử end-to-end (Test flow) & Quản trị tài nguyên
+
+1. **Cấu hình Concurrency:** Cài biến môi trường `MAX_CONCURRENT_JOBS=2` (trong `.env`).
+2. Mở ứng dụng, tạo ra một Exception chủ động (vd: throw Error).
+3. Kiểm tra **GlitchTip**: Lỗi mới xuất hiện trong *Issues*.
+4. Kiểm tra **Jira**: Issue tạo mới có tiền tố `[AUTO-BUG]` và các nhãn (VD: `auto-fix`, `service:web`). Ticket ở cột *To Do*.
+5. Kiểm tra **Terminal**: Script `worker.js` (Singleton) phát hiện ticket, gửi Telegram alert, atomic claim ticket bằng nhãn `auto-fix-processing` (ticket chuyển *In Progress* / Lock). Worker (nếu `activeJobs < MAX_CONCURRENT_JOBS`) tự trích xuất thư mục target, nhánh cô lập (`hotfix/<JIRA-KEY>`) và sửa lỗi. Nếu đầy tải, vòng lặp Async Polling bỏ qua ticket chờ chu kỳ sau. Hoàn thành ticket, gỡ `processing`, gắn `auto-fix-done` (ticket chuyển *In Review*).

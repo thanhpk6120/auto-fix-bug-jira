@@ -1,0 +1,21 @@
+{
+  "_comment": "projects.json - Cấu hình danh mục dự án cho Singleton Master Worker (worker.js). Khống chế số lượng job AI chạy đồng thời bằng biến môi trường MAX_CONCURRENT_JOBS (mặc định: 2).",
+  "_comment_projects": "Mảng danh sách các dự án mà Singleton Master Worker sẽ giám sát và xử lý.",
+  "_comment_projectKey": "Key dự án trên Jira (ví dụ KANBAN, ECOM) để worker filter issue (JQL).",
+  "_comment_path": "Đường dẫn tương đối từ root tới thư mục dự án ('.' cho repo gốc, 'services-2' cho sub-project).",
+  "_MAX_CONCURRENT_JOBS_EXAMPLE": "Trong file .env, thêm dòng: MAX_CONCURRENT_JOBS=2",
+  "projects": [
+    {
+      "projectKey": "KANBAN",
+      "path": ".",
+      "name": "Dự án Kanban Board chính",
+      "description": "Repo gốc chứa services/api (Spring Boot) và services/web (React Vite)"
+    },
+    {
+      "projectKey": "ECOM",
+      "path": "services-2",
+      "name": "Dự án Thương mại điện tử E-Commerce",
+      "description": "Thư mục services-2 chứa api (Spring Boot 8081) và web (React 5174)"
+    }
+  ]
+}
