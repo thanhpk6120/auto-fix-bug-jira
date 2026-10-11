@@ -4,7 +4,7 @@ import App from './App.jsx'
 import * as Sentry from '@sentry/react'
 
 Sentry.init({
-  dsn: "https://examplePublicKey@o0.ingest.sentry.io/0",
+  dsn: import.meta.env.VITE_SENTRY_DSN || "http://91adc6ddafed48748d2a199e89f0f984@10.30.1.200:8000/4",
   integrations: [
     Sentry.browserTracingIntegration(),
     Sentry.replayIntegration(),

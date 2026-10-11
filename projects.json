@@ -1,12 +1,16 @@
 {
   "projects": [
     {
-      "projectKey": "KANBAN",
-      "path": "."
+      "projectKey": "SHOP",
+      "path": "services",
+      "name": "SHOP (Main Service)",
+      "description": "Dự án Shop chính (services/api Spring Boot 8080 và services/web React Vite 5173)"
     },
     {
-      "projectKey": "ECOM",
-      "path": "services-2"
+      "projectKey": "CMS",
+      "path": "services-2",
+      "name": "CMS (Service 2)",
+      "description": "Dự án CMS quản trị (services-2/api Spring Boot 8081 và services-2/web React Vite 5174)"
     }
   ]
 }

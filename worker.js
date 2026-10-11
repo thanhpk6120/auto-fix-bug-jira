@@ -467,8 +467,8 @@ async function checkJiraForBugs() {
 
         try {
             const { projectKey } = project;
-            const jql = `project = ${projectKey} AND issuetype = Bug AND status = "To Do" AND (labels = "auto-fix" OR summary ~ "\\[AUTO-BUG\\]") AND labels != "auto-fix-processing"`;
-            const searchUrl = `https://${JIRA_DOMAIN}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
+            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN (\"To Do\", \"Selected for Development\", \"Backlog\") AND (labels = \"auto-fix\" OR summary ~ \"\\[AUTO-BUG\\]\") AND labels != \"auto-fix-processing\"`;
+            const searchUrl = `https://${JIRA_DOMAIN}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
             
             const res = await fetch(searchUrl, {
                 method: 'GET',
@@ -573,7 +573,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         throw new Error(`[Fail-Safe Abort] Ticket ${issueKey} không có nhãn 'service:*'. Không xác định được service mục tiêu để xử lý an toàn.`);
     }
 
-    const SERVICES_DIR = (projectConfig.path === '.' || !projectConfig.path) ? 'services' : projectConfig.path;
+    const SERVICES_DIR = projectConfig.path || 'services';
     const targetService = serviceLabel.split(':')[1];
     const targetServiceDir = path.join(process.cwd(), SERVICES_DIR, targetService);
     
