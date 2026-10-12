@@ -1,0 +1,7 @@
+File: services/api/src/main/java/com/poc/buggy/BugController.java
+Lines 10-15:
+    @GetMapping("/calculate")
+    public Object calculate() {
+        int x = 100 / 0;
+        return x;
+    }
