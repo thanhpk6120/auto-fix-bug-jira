@@ -6,7 +6,7 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
         cwd,
         timeout,
         encoding: 'utf8',
-        shell: true,
+        shell: false,
         windowsHide: true,
         stdio: captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit'
     };
@@ -133,29 +133,8 @@ const PENDING_FILE = path.join(__dirname, 'pending-prs.json');
 const evidenceHelper = require('./evidence.js');
 
 
-function parseJacocoCoverage(csvPath) {
-    if (!fs.existsSync(csvPath)) return 0;
-    const lines = fs.readFileSync(csvPath, 'utf8').trim().split('\n');
-    if (lines.length <= 1) return 0;
-    
-    let missed = 0;
-    let covered = 0;
-    
-    for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',');
-        if (parts.length > 4) {
-            missed += parseInt(parts[3] || 0, 10);
-            covered += parseInt(parts[4] || 0, 10);
-        }
-    }
-    
-    const total = missed + covered;
-    if (total === 0) return 0;
-    return (covered / total) * 100;
-}
 
-const getReproPrompt = () => `Tái hiện lỗi theo thứ tự ưu tiên: 1. Đọc Jira Description để trích xuất URL/Domain và tài khoản bị lỗi, sau đó truy cập hệ thống đó. 2. Nếu không lấy được URL hoặc truy cập thất bại, khởi động service local (dựa trên CLAUDE.md) ở chế độ ngầm và test local. 3. Đọc mã nguồn. LƯU BẰNG CHỨNG (log, screenshot) VÀO 'evidence/{JIRA_KEY}/before'. NẾU KHÔNG THỂ TÁI HIỆN, DỪNG LẠI VÀ IN: [AI_STOP] REPRO_FAILED: <lý do>`;
-const getVerifyPrompt = (SERVICES_DIR) => `Xác minh lỗi theo thứ tự: 1. Nếu có domain/IP staging/dev, truy cập kiểm tra lại. 2. Nếu không, khởi động service local (background ngầm) và test. 3. NẾU KHÔNG CHẠY ĐƯỢC LOCAL HOẶC KHÔNG THỂ VERIFY TRÊN DOMAIN, BẮT BUỘC TẠO/SỬA ĐẦY ĐỦ UNIT TEST: sử dụng JUnit 5 + Mock data (Mockito) để test toàn bộ các case (happy path, edge cases, error). Chạy './mvnw clean test jacoco:report' (trong ${SERVICES_DIR}/api). Yêu cầu chỉ số JaCoCo coverage (trong target/site/jacoco/jacoco.csv) phải > 90% cho file code được sửa. Bắt buộc copy file báo cáo JaCoCo (jacoco.csv hoặc html) và kết quả unit test vào thư mục 'evidence/{JIRA_KEY}/after'. NẾU LỖI CHƯA ĐƯỢC FIX, HÃY DỪNG LẠI VÀ IN CHÍNH XÁC: [AI_STOP] VERIFY_FAILED: <lý do>`;
+const getReproPrompt = () => "Reproduce the bug. Priority: 1. Read Jira description for domain/URL and error details. 2. If no URL or access fails, inspect source code and test locally. 3. SAVE EVIDENCE logs to 'evidence/{JIRA_KEY}/before'. IF CANNOT REPRODUCE, STOP AND PRINT: [AI_STOP] REPRO_FAILED";
 
 if (!JIRA_DOMAIN || !JIRA_EMAIL || !JIRA_TOKEN) {
     console.warn("⚠️ Thiếu cấu hình Jira. Bot vẫn chạy nhưng tính năng auto-fix sẽ báo lỗi.");
