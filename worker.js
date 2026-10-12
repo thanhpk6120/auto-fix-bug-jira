@@ -583,16 +583,22 @@ async function ensureAICommittedItself(branchName, context, worktreeDir, baseBra
     if (diffStatus !== "") {
         console.warn(`[!] CẢNH BÁO: Claude AI đã để lại file chưa commit sau khi ${context} tại ${cwd}!`);
         
-        // Chỉ add các file không phải evidence
+        // Chỉ add các file không phải evidence/build artifact (parse porcelain robust)
         const lines = diffStatus.split('\n');
         let hasNonEvidence = false;
+        const isIgnored = (f) => {
+            const p = f.replace(/^"|"$/g, '');
+            return p.startsWith('evidence/') || p.startsWith('target/') || p.includes('/target/') || p.startsWith('node_modules/') || p.includes('/node_modules/') || p.startsWith('dist/') || p.includes('/dist/') || p.endsWith('.class');
+        };
         for (const line of lines) {
-            const file = line.substring(3).trim();
-            if (!file.startsWith('evidence/')) {
-                execSync(`git add "${file}"`, { cwd });
-                hasNonEvidence = true;
-            }
-        }
+            const m = line.match(/^.{2}\s+(.+)$/);
+            if (!m) continue;
+            let file = m[1].trim().replace(/^"|"$/g, '');
+            if (file.includes(' -> ')) file = file.split(' -> ').pop().trim().replace(/^"|"$/g, '');
+            if (!file || isIgnored(file)) continue;
+            execSync(`git add -- "${file}"`, { cwd });
+            hasNonEvidence = true;
+        };
         
         if (hasNonEvidence) {
             execSync(`git commit -m "fix(auto): catch uncommitted changes after ${context}"`, { cwd });
