@@ -19,7 +19,13 @@ function validateConfigs() {
         const projectPath = project.path || '.';
         const servicesFile = path.join(projectPath, 'services.json');
         if (!fs.existsSync(servicesFile)) {
-            console.warn(`[CANH BAO] Project ${project.projectKey} thiếu services.json tại ${servicesFile}. Hãy copy từ services.json.example và cấu hình các trường.`);
+            console.warn(`[CANH BAO] Project ${project.projectKey} thiếu services.json tại ${servicesFile}. Tự động copy từ services.json.example...`);
+            try {
+                fs.copyFileSync('services.json.example', servicesFile);
+                console.log(`[+] Đã tạo ${servicesFile}. Vui lòng cấu hình lại các trường.`);
+            } catch (err) {
+                console.error(`[LOI] Không thể copy services.json.example sang ${servicesFile}:`, err.message);
+            }
         } else {
             try {
                 const raw = JSON.parse(fs.readFileSync(servicesFile, 'utf8'));
