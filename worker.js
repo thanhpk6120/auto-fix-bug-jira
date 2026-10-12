@@ -467,7 +467,7 @@ async function checkJiraForBugs() {
 
         try {
             const { projectKey } = project;
-            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND labels != "auto-fix-processing"`;
+            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND labels != "auto-fix-processing" AND labels != "auto-fix-done" AND labels != "auto-fix-failed"`;
             const searchUrl = `https://${JIRA_DOMAIN}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
 
             console.log(`[+] Đang quét Jira cho dự án ${projectKey}...`);

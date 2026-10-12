@@ -12,9 +12,11 @@ pending-prs.json
 node_modules/
 dist/
 target/
+*.log
 *.pid
 server.err
 server.pid
+server.log
 
 # OS & IDE
 .DS_Store
