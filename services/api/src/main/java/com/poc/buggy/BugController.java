@@ -9,6 +9,7 @@ public class BugController {
 
     @GetMapping("/calculate")
     public Object calculate(@RequestParam(defaultValue = "0") int divisor) {
+        // Prevent ArithmeticException: / by zero
         if (divisor == 0) {
             return "Cannot divide by zero";
         }
