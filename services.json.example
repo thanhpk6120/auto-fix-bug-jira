@@ -3,7 +3,7 @@
   "_fields_description": {
     "name": "Tên định danh service (vd: 'api', 'web')",
     "path": "Đường dẫn tương đối từ project folder tới mã nguồn service (vd: 'api', 'web')",
-    "gitRepo": "Tên repository GitHub theo định dạng 'owner/repo' (vd: 'thanhpk6120/shop-api'). Bắt buộc để clone/fetch và tạo PR.",
+    "gitRepo": "Tên repository Git theo định dạng 'owner/repo' (vd: 'thanhpk6120/shop-api'). Bắt buộc để clone/fetch và tạo PR.",
     "branches": {
       "_comment": "Cấu hình các nhánh Git cho service",
       "dev": "Nhánh nguồn để tách worktree sửa lỗi (vd: 'develop' hoặc 'master'). Worker sẽ checkout/pull nhánh này trước khi tạo hotfix branch.",

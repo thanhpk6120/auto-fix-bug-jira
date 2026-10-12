@@ -50,7 +50,55 @@ const JIRA_EMAIL = process.env.JIRA_EMAIL;
 const JIRA_TOKEN = process.env.JIRA_TOKEN;
 
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+// --- GIT REPO / HOST HELPERS ---
+function normalizeGitHost(hostStr) {
+    if (!hostStr) return 'github.com';
+    let host = hostStr.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (host.toLowerCase().endsWith('.git')) host = host.slice(0, -4);
+    return host || 'github.com';
+}
+function normalizeRepoPath(repoStr) {
+    if (!repoStr) return '';
+    let repo = repoStr.trim().replace(/^https?:\/\//i, '');
+    const host = normalizeGitHost(process.env.GIT_HOST || 'github.com');
+    if (repo.toLowerCase().startsWith(host.toLowerCase() + '/')) {
+        repo = repo.slice(host.length + 1);
+    } else if (repo.toLowerCase().startsWith('github.com/')) {
+        repo = repo.slice('github.com/'.length);
+    }
+    repo = repo.replace(/^\/+/, '');
+    if (repo.toLowerCase().endsWith('.git')) repo = repo.slice(0, -4);
+    return repo;
+}
+
+const GIT_HOST = normalizeGitHost(process.env.GIT_HOST || 'github.com');
+const GIT_TOKEN = process.env.GIT_TOKEN || process.env.GITHUB_TOKEN || '';
+const GITHUB_TOKEN = GIT_TOKEN; // Backward compat
+const GIT_API_BASE_URL = (process.env.GIT_API_BASE_URL || '').trim();
+
+function buildRemoteUrl(gitRepo) {
+    const cleanRepo = normalizeRepoPath(gitRepo);
+    if (!cleanRepo) return 'origin';
+    const host = normalizeGitHost(GIT_HOST);
+    if (GIT_TOKEN) return `https://${GIT_TOKEN}@${host}/${cleanRepo}.git`;
+    return 'origin';
+}
+
+function isGitHubHost() {
+    return normalizeGitHost(GIT_HOST).toLowerCase() === 'github.com';
+}
+
+function ensureRemoteOrigin(cwd, gitRepo) {
+    const remoteUrl = buildRemoteUrl(gitRepo);
+    if (remoteUrl && remoteUrl !== 'origin') {
+        try { execSync(`git remote set-url origin ${remoteUrl}`, { cwd, stdio: 'pipe' }); }
+        catch (e) {
+            try { execSync(`git remote add origin ${remoteUrl}`, { cwd, stdio: 'pipe' }); }
+            catch (e2) {}
+        }
+    }
+}
+
 const GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || 'AI Bug Fixer';
 const GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || 'ai-bot@local.dev';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-3-7-sonnet';
@@ -170,7 +218,8 @@ function removePendingPR(prNumber) {
 // Kiểm tra real-time với GitHub: loại bỏ PR đã closed hoặc merged
 async function syncAndCleanPendingPRs() {
     const localList = readLocalPendingPRs();
-    if (!GITHUB_TOKEN || localList.length === 0) return localList;
+    if (!localList.length) return localList;
+    if (!isGitHubHost() || !GIT_TOKEN) return localList;
 
     const cleanedList = [];
     for (const pr of localList) {
@@ -202,6 +251,42 @@ const githubHeaders = {
     'User-Agent': 'Autonomous-AI-Worker'
 };
 
+async function createPR(gitRepo, targetBranch, branchName, title, body) {
+    if (isGitHubHost()) return await createGitHubPR(gitRepo, targetBranch, branchName, title, body);
+
+    console.warn(`\n[CANH BAO] Đang sử dụng Git Host doanh nghiệp tự host: ${GIT_HOST}`);
+    console.warn(`[!] API tạo Pull Request của ${GIT_HOST} khác với GitHub API.`);
+
+    if (GIT_API_BASE_URL) {
+        console.log(`[+] Phát hiện GIT_API_BASE_URL: ${GIT_API_BASE_URL}. Đang gửi request tạo PR/MR...`);
+        try {
+            const cleanRepo = normalizeRepoPath(gitRepo);
+            const apiUrl = GIT_API_BASE_URL.replace('{repo}', encodeURIComponent(cleanRepo)).replace('{rawRepo}', cleanRepo);
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${GIT_TOKEN}`, 'Content-Type': 'application/json', 'User-Agent': 'Autonomous-AI-Worker' },
+                body: JSON.stringify({ title: title, source_branch: branchName, target_branch: targetBranch, description: body, head: branchName, base: targetBranch })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                console.log(`[+] Đã tạo PR/MR thành công qua Generic API: ${data.web_url || data.html_url || data.url || JSON.stringify(data)}`);
+                return { html_url: data.web_url || data.html_url || data.url || `https://${GIT_HOST}/${cleanRepo}`, number: data.iid || data.id || data.number || Math.floor(Math.random() * 1000) };
+            } else {
+                console.warn(`[!] Gọi GIT_API_BASE_URL thất bại (HTTP ${res.status}): ${await res.text()}`);
+            }
+        } catch (apiErr) {
+            console.warn(`[!] Lỗi khi gọi GIT_API_BASE_URL: ${apiErr.message}`);
+        }
+    }
+
+    const cleanRepo = normalizeRepoPath(gitRepo);
+    const manualMrUrl = `https://${GIT_HOST}/${cleanRepo}`;
+    console.warn(`[!] Nhánh '${branchName}' đã push thành công lên ${GIT_HOST}.`);
+    console.warn(`[!] HƯỚNG DẪN: Vui lòng truy cập ${manualMrUrl} để tạo Merge Request / Pull Request thủ công từ nhánh '${branchName}' vào '${targetBranch}'.`);
+
+    return { html_url: manualMrUrl + ' (Cần tạo MR thủ công)', number: Math.floor(Math.random() * 1000) };
+}
+
 async function createGitHubPR(gitRepo, targetBranch, branchName, title, body) {
     if (!GITHUB_TOKEN || !gitRepo) {
         console.log(`[!] Không có GITHUB_TOKEN hoặc gitRepo. Giả lập mở PR thành công: #demo-pr`);
@@ -228,6 +313,14 @@ async function createGitHubPR(gitRepo, targetBranch, branchName, title, body) {
         throw new Error(data.message || 'Không thể tạo PR');
     }
     return data;
+}
+
+async function mergePR(gitRepo, prNumber) {
+    if (!isGitHubHost()) {
+        console.warn(`[!] Host ${GIT_HOST} là git tự host, không hỗ trợ auto-merge qua GitHub API. Vui lòng merge thủ công trên Web UI.`);
+        throw new Error(`Host ${GIT_HOST} là git tự host, không hỗ trợ tự động merge qua API. Vui lòng duyệt merge thủ công trên Web UI.`);
+    }
+    return await mergeGitHubPR(gitRepo, prNumber);
 }
 
 async function mergeGitHubPR(gitRepo, prNumber) {
@@ -355,7 +448,7 @@ async function handleCallbackQuery(cb) {
         await editMessageText(msgId, `⏳ <b>Đang thực hiện Merge PR #${prNumber}</b> vào <code>${prodBranch}</code>...`);
 
         try {
-            await mergeGitHubPR(gitRepo, prNumber);
+            await mergePR(gitRepo, prNumber);
             removePendingPR(prNumber);
             await editMessageText(msgId, `🎉 <b>Đã Merge thành công PR #${prNumber}</b> vào <code>${prodBranch}</code>!\n(Người duyệt: @${cb.from.username || userId})`);
         } catch (err) {
@@ -368,7 +461,7 @@ async function handleCallbackQuery(cb) {
 
             if (resolved) {
                 try {
-                    await mergeGitHubPR(gitRepo, prNumber);
+                    await mergePR(gitRepo, prNumber);
                     removePendingPR(prNumber);
                     await editMessageText(msgId, `✅ <b>Claude đã tự giải quyết xong Conflict và Merge PR #${prNumber} thành công!</b>`);
                 } catch (e2) {
@@ -445,7 +538,8 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
             cwd = targetServiceDirOrServicesDir;
         }
     } catch (e) {}
-    const pushUrlLocal = GITHUB_TOKEN ? `https://${GITHUB_TOKEN}@github.com/${gitRepo}.git` : 'origin';
+    const pushUrlLocal = buildRemoteUrl(gitRepo);
+    ensureRemoteOrigin(cwd, gitRepo);
     try {
         console.log(`[+] Bắt đầu gỡ conflict cho branch ${branchName}...`);
         execSync(`git checkout ${branchName}`, { cwd, stdio: 'inherit' });
@@ -662,7 +756,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
     const prodBranch = serviceConfig.branches.prod;
     const targetBranch = serviceConfig.branches.target || '';
     const gitRepo = serviceConfig.gitRepo;
-    const pushUrl = GITHUB_TOKEN ? `https://${GITHUB_TOKEN}@github.com/${gitRepo}.git` : 'origin';
+    const pushUrl = buildRemoteUrl(gitRepo);
 
     const branchName = `hotfix/${issueKey}`;
     const worktreeDir = path.join(targetServiceDir, '.worktrees', branchName);
@@ -683,6 +777,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
 
         // 3. Kéo code mới nhất từ remote
         console.log(`[+] Kéo code mới nhất từ origin/${devBranch}...`);
+        ensureRemoteOrigin(targetServiceDir, gitRepo);
         execSync(`git fetch origin`, { cwd: targetServiceDir, stdio: 'pipe' });
 
         // 4. Tạo Git Worktree độc lập
@@ -744,7 +839,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
 
         // 10. Tạo PR trên GitHub vào prodBranch của service
         console.log(`[+] Tự động mở Pull Request vào ${prodBranch} trên ${gitRepo}...`);
-        const pr = await createGitHubPR(
+        const pr = await createPR(
             gitRepo,
             prodBranch,
             branchName,
@@ -772,7 +867,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
                     { text: "⏳ Lưu vào hàng đợi", callback_data: `defer|${pr.number}|${branchName}|${issueKey}` }
                 ],
                 [
-                    { text: "🔗 Xem PR trên GitHub", url: pr.html_url }
+                    { text: isGitHubHost() ? "🔗 Xem PR trên GitHub" : "🔗 Xem PR/MR trên Git Host", url: pr.html_url }
                 ]
             ]
         };
