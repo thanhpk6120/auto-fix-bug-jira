@@ -2,7 +2,7 @@
   "services": [
     {
       "name": "api",
-      "path": "api",
+      "path": "cms-api",
       "gitRepo": "thanhpk6120/cms-api",
       "branches": {
         "dev": "master",
@@ -12,7 +12,7 @@
     },
     {
       "name": "web",
-      "path": "web",
+      "path": "cms-web",
       "gitRepo": "thanhpk6120/cms-web",
       "branches": {
         "dev": "master",

@@ -23,3 +23,8 @@ server.log
 Thumbs.db
 .idea/
 .vscode/
+
+services-2/cms-api/
+services-2/cms-web/
+services/shop-api/
+services/shop-web/
