@@ -1,0 +1,24 @@
+{
+  "services": [
+    {
+      "name": "api",
+      "path": "api",
+      "gitRepo": "thanhpk6120/shop-api",
+      "branches": {
+        "dev": "master",
+        "target": "staging",
+        "prod": "master"
+      }
+    },
+    {
+      "name": "web",
+      "path": "web",
+      "gitRepo": "thanhpk6120/shop-web",
+      "branches": {
+        "dev": "master",
+        "target": "staging",
+        "prod": "master"
+      }
+    }
+  ]
+}

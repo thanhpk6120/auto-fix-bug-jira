@@ -1,0 +1,24 @@
+{
+  "services": [
+    {
+      "name": "api",
+      "path": "api",
+      "gitRepo": "thanhpk6120/cms-api",
+      "branches": {
+        "dev": "master",
+        "target": "staging",
+        "prod": "master"
+      }
+    },
+    {
+      "name": "web",
+      "path": "web",
+      "gitRepo": "thanhpk6120/cms-web",
+      "branches": {
+        "dev": "master",
+        "target": "staging",
+        "prod": "master"
+      }
+    }
+  ]
+}

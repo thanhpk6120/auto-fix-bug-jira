@@ -1,0 +1,36 @@
+{
+  "_comment": "Cấu hình danh sách các service của project. File này được đặt bên trong từng thư mục project (vd: services/services.json, services-2/services.json).",
+  "_fields_description": {
+    "name": "Tên định danh service (vd: 'api', 'web')",
+    "path": "Đường dẫn tương đối từ project folder tới mã nguồn service (vd: 'api', 'web')",
+    "gitRepo": "Tên repository GitHub theo định dạng 'owner/repo' (vd: 'thanhpk6120/shop-api'). Bắt buộc để clone/fetch và tạo PR.",
+    "branches": {
+      "_comment": "Cấu hình các nhánh Git cho service",
+      "dev": "Nhánh nguồn để tách worktree sửa lỗi (vd: 'develop' hoặc 'master'). Worker sẽ checkout/pull nhánh này trước khi tạo hotfix branch.",
+      "target": "Nhánh để deploy môi trường kiểm thử/staging (vd: 'staging' hoặc 'pre-prod'). Dùng để verify tự động sau khi fix.",
+      "prod": "Nhánh production quan trọng (vd: 'main' hoặc 'master'). Dùng làm target tạo PR sau khi verify thành công."
+    }
+  },
+  "services": [
+    {
+      "name": "api",
+      "path": "api",
+      "gitRepo": "thanhpk6120/shop-api",
+      "branches": {
+        "dev": "master",
+        "target": "staging",
+        "prod": "master"
+      }
+    },
+    {
+      "name": "web",
+      "path": "web",
+      "gitRepo": "thanhpk6120/shop-web",
+      "branches": {
+        "dev": "master",
+        "target": "staging",
+        "prod": "master"
+      }
+    }
+  ]
+}

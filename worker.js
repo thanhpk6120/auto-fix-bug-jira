@@ -14,6 +14,29 @@ try {
     projectsConfig = JSON.parse(rawData).projects || [];
 } catch (err) {}
 
+function validateConfigs() {
+    for (const project of projectsConfig) {
+        const projectPath = project.path || '.';
+        const servicesFile = path.join(projectPath, 'services.json');
+        if (!fs.existsSync(servicesFile)) {
+            console.warn(`[CANH BAO] Project ${project.projectKey} thiếu services.json tại ${servicesFile}. Hãy copy từ services.json.example và cấu hình các trường.`);
+        } else {
+            try {
+                const raw = JSON.parse(fs.readFileSync(servicesFile, 'utf8'));
+                const services = Array.isArray(raw.services) ? raw.services : Object.values(raw);
+                for (const s of services) {
+                    if (!s.gitRepo || !s.branches) {
+                        console.warn(`[CANH BAO] Service trong ${servicesFile} thiếu gitRepo hoặc branches.`);
+                    }
+                }
+            } catch (e) {
+                console.warn(`[CANH BAO] Lỗi đọc ${servicesFile}: ${e.message}`);
+            }
+        }
+    }
+}
+validateConfigs();
+
 
 // --- CẤU HÌNH BIẾN MÔI TRƯỜNG (CÔ LẬP THEO DỰ ÁN) ---
 const JIRA_DOMAIN = process.env.JIRA_DOMAIN;
@@ -22,18 +45,10 @@ const JIRA_TOKEN = process.env.JIRA_TOKEN;
 
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_REPO = process.env.GITHUB_REPO;
-const GIT_BASE_BRANCH = process.env.GIT_BASE_BRANCH || 'main'; // (Fallback cũ)
-const GIT_PREPROD_BRANCH = process.env.GIT_PREPROD_BRANCH || ''; // (Fallback cũ)
-
-const GIT_DEV_BRANCH = process.env.GIT_DEV_BRANCH || GIT_BASE_BRANCH; // Nhánh xuất phát và chứa code DEV
-const GIT_TARGET_BRANCH = process.env.GIT_TARGET_BRANCH || GIT_PREPROD_BRANCH || ''; // Nhánh pre-prod để auto merge trigger CI/CD deploy dev/demo
-const GIT_PROD_BRANCH = process.env.GIT_PROD_BRANCH || 'main'; // Nhánh quan trọng (chỉ tạo PR sau khi verify thành công)
 const GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || 'AI Bug Fixer';
 const GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || 'ai-bot@local.dev';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-3-7-sonnet';
 const CLAUDE_TIMEOUT = parseInt(process.env.CLAUDE_TIMEOUT_MS || '300000', 10);
-const PREPROD_HEALTH_URL = process.env.PREPROD_HEALTH_URL;
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -74,69 +89,51 @@ if (!JIRA_DOMAIN || !JIRA_EMAIL || !JIRA_TOKEN) {
 }
 
 const authHeader = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString('base64');
-const pushUrl = (GITHUB_TOKEN && GITHUB_REPO) 
-    ? `https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git` 
-    : 'origin';
 
-async function waitForPreprodReady(fallbackHealthUrl, SERVICES_DIR = 'services', timeoutMs = 180000) {
-    const servicesFile = path.join(process.cwd(), 'services.json');
-    let targets = [];
+function getServiceInfoForPR(prNumber, branchName) {
+    const localList = readLocalPendingPRs();
+    const pr = localList.find(p => p.prNumber === prNumber || (branchName && p.branch === branchName));
+    if (pr && pr.gitRepo && pr.prodBranch) {
+        return {
+            gitRepo: pr.gitRepo,
+            prodBranch: pr.prodBranch,
+            devBranch: pr.devBranch || 'master',
+            targetServiceDir: pr.targetServiceDir || process.cwd()
+        };
+    }
 
-    if (fs.existsSync(servicesFile)) {
+    const projectKeyMatch = (branchName || (pr && pr.branch) || '').match(/^hotfix\/([A-Z]+)-\d+/);
+    const projectKey = projectKeyMatch ? projectKeyMatch[1] : '';
+    const pConfig = projectsConfig.find(p => p.projectKey === projectKey);
+    const projectPath = (pConfig && pConfig.path && pConfig.path !== '.') ? pConfig.path : 'services';
+    const servicesJsonPath = path.join(process.cwd(), projectPath, 'services.json');
+
+    if (fs.existsSync(servicesJsonPath)) {
         try {
-            const raw = JSON.parse(fs.readFileSync(servicesFile, 'utf8'));
-            // Hỗ trợ cả 2 schema: {"services":[{"deployUrl", "healthPath"}]} hoặc {"api":{"deployUrl","healthPath"}}
-            if (Array.isArray(raw.services)) {
-                for (const s of raw.services) {
-                    if ((!s.path || s.path.startsWith(SERVICES_DIR)) && s.deployUrl && s.healthPath) {
-                        const fullUrl = s.deployUrl.replace(/\/+$/, '') + '/' + s.healthPath.replace(/^\/+/, '');
-                        targets.push(fullUrl);
-                    }
-                }
-            } else if (typeof raw === 'object' && raw !== null) {
-                for (const k of Object.keys(raw)) {
-                    const s = raw[k];
-                    if (s && s.deployUrl && s.healthPath) {
-                        const fullUrl = s.deployUrl.replace(/\/+$/, '') + '/' + s.healthPath.replace(/^\/+/, '');
-                        targets.push(fullUrl);
-                    }
-                }
+            const raw = JSON.parse(fs.readFileSync(servicesJsonPath, 'utf8'));
+            const services = Array.isArray(raw.services) ? raw.services : Object.values(raw);
+            const svc = services.find(s => s.gitRepo && s.branches) || services[0];
+            if (svc && svc.gitRepo && svc.branches) {
+                return {
+                    gitRepo: svc.gitRepo,
+                    prodBranch: svc.branches.prod || 'master',
+                    devBranch: svc.branches.dev || 'master',
+                    targetServiceDir: path.join(process.cwd(), projectPath, svc.path || '')
+                };
             }
-        } catch (e) {
-            console.warn(`[!] Không thể đọc services.json: ${e.message}`);
-        }
+        } catch (e) {}
     }
 
-    if (targets.length === 0 && fallbackHealthUrl) {
-        targets.push(fallbackHealthUrl);
+    if (pr && pr.gitRepo) {
+        return {
+            gitRepo: pr.gitRepo,
+            prodBranch: pr.prodBranch || 'master',
+            devBranch: pr.devBranch || 'master',
+            targetServiceDir: pr.targetServiceDir || process.cwd()
+        };
     }
 
-    if (targets.length === 0) return false;
-
-    console.log(`[+] Đang chờ service sẵn sàng qua health check (${targets.join(', ')})...`);
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeoutMs) {
-        let allOk = true;
-        for (const url of targets) {
-            try {
-                const res = await fetch(url);
-                if (!res.ok) {
-                    allOk = false;
-                    break;
-                }
-            } catch (e) {
-                allOk = false;
-                break;
-            }
-        }
-        if (allOk) {
-            console.log(`[+] Tất cả health checks đã sẵn sàng (HTTP 200).`);
-            return true;
-        }
-        await new Promise(resolve => setTimeout(resolve, 5000));
-    }
-    console.warn(`[!] Quá thời gian chờ health check (${timeoutMs}ms).`);
-    return false;
+    throw new Error(`[Fail-Safe] Không thể xác định gitRepo/branches cho PR #${prNumber} (${branchName}). Vui lòng kiểm tra pending-prs.json hoặc services.json.`);
 }
 
 // --- QUẢN LÝ DANH SÁCH ĐỢI (PENDING QUEUE) & CHỐNG RÁC ---
@@ -167,23 +164,21 @@ function removePendingPR(prNumber) {
 // Kiểm tra real-time với GitHub: loại bỏ PR đã closed hoặc merged
 async function syncAndCleanPendingPRs() {
     const localList = readLocalPendingPRs();
-    if (!GITHUB_TOKEN || !GITHUB_REPO || localList.length === 0) return localList;
+    if (!GITHUB_TOKEN || localList.length === 0) return localList;
 
     const cleanedList = [];
     for (const pr of localList) {
+        if (!pr.gitRepo) { cleanedList.push(pr); continue; }
         try {
-            const url = `https://api.github.com/repos/${GITHUB_REPO}/pulls/${pr.prNumber}`;
+            const url = `https://api.github.com/repos/${pr.gitRepo}/pulls/${pr.prNumber}`;
             const res = await fetch(url, { headers: githubHeaders });
             if (res.ok) {
                 const data = await res.json();
-                // Chỉ giữ PR đang OPEN
-                if (data.state === 'open') {
-                    cleanedList.push(pr);
-                }
+                if (data.state === 'open') cleanedList.push(pr);
             } else if (res.status === 404) {
                 // PR đã bị xoá
             } else {
-                cleanedList.push(pr); // Giữ tạm nếu rate limit hoặc mạng lỗi
+                cleanedList.push(pr);
             }
         } catch (e) {
             cleanedList.push(pr);
@@ -201,29 +196,37 @@ const githubHeaders = {
     'User-Agent': 'Autonomous-AI-Worker'
 };
 
-async function createGitHubPR(branchName, title, body) {
-    if (!GITHUB_TOKEN || !GITHUB_REPO) {
-        return { html_url: `#demo-pr`, number: Math.floor(Math.random() * 1000) };
+async function createGitHubPR(gitRepo, targetBranch, branchName, title, body) {
+    if (!GITHUB_TOKEN || !gitRepo) {
+        console.log(`[!] Không có GITHUB_TOKEN hoặc gitRepo. Giả lập mở PR thành công: #demo-pr`);
+        return {
+            html_url: `https://github.com/${gitRepo || 'mock-repo'}/pull/${Math.floor(Math.random() * 1000)}`,
+            number: Math.floor(Math.random() * 1000)
+        };
     }
-    const url = `https://api.github.com/repos/${GITHUB_REPO}/pulls`;
+
+    const url = `https://api.github.com/repos/${gitRepo}/pulls`;
     const res = await fetch(url, {
         method: 'POST',
         headers: githubHeaders,
         body: JSON.stringify({
             title: title,
             head: branchName,
-            base: GIT_PROD_BRANCH,
+            base: targetBranch || 'main',
             body: body
         })
     });
+
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Không thể tạo PR');
+    if (!res.ok) {
+        throw new Error(data.message || 'Không thể tạo PR');
+    }
     return data;
 }
 
-async function mergeGitHubPR(prNumber) {
-    if (!GITHUB_TOKEN || !GITHUB_REPO) return { merged: true, message: 'Demo mode merged' };
-    const url = `https://api.github.com/repos/${GITHUB_REPO}/pulls/${prNumber}/merge`;
+async function mergeGitHubPR(gitRepo, prNumber) {
+    if (!GITHUB_TOKEN || !gitRepo) return { merged: true, message: 'Demo mode merged' };
+    const url = `https://api.github.com/repos/${gitRepo}/pulls/${prNumber}/merge`;
     const res = await fetch(url, {
         method: 'PUT',
         headers: githubHeaders,
@@ -331,29 +334,35 @@ async function handleCallbackQuery(cb) {
         const [, prNumStr, branch] = action.split('|');
         const prNumber = parseInt(prNumStr, 10);
 
+        let serviceInfo;
+        try {
+            serviceInfo = getServiceInfoForPR(prNumber, branch);
+        } catch (e) {
+            console.error(`[!] Lỗi tìm serviceInfo cho PR #${prNumber}:`, e.message);
+            await answerCallbackQuery(cb.id, `❌ Lỗi: ${e.message}`, true);
+            return;
+        }
+
+        const { gitRepo, prodBranch, targetServiceDir } = serviceInfo;
+
         await answerCallbackQuery(cb.id, `Đang xử lý Merge PR #${prNumber}...`);
-        await editMessageText(msgId, `⏳ <b>Đang thực hiện Merge PR #${prNumber}</b> vào <code>${GIT_PROD_BRANCH}</code>...`);
+        await editMessageText(msgId, `⏳ <b>Đang thực hiện Merge PR #${prNumber}</b> vào <code>${prodBranch}</code>...`);
 
         try {
-            await mergeGitHubPR(prNumber);
+            await mergeGitHubPR(gitRepo, prNumber);
             removePendingPR(prNumber);
-            await editMessageText(msgId, `🎉 <b>Đã Merge thành công PR #${prNumber}</b> vào <code>${GIT_PROD_BRANCH}</code>!\n(Người duyệt: @${cb.from.username || userId})`);
+            await editMessageText(msgId, `🎉 <b>Đã Merge thành công PR #${prNumber}</b> vào <code>${prodBranch}</code>!\n(Người duyệt: @${cb.from.username || userId})`);
         } catch (err) {
             console.error(`[!] Lỗi khi merge PR #${prNumber}:`, err.message);
 
             // Bắt lỗi Conflict
             await editMessageText(msgId, `⚠️ <b>Phát hiện Conflict trên PR #${prNumber}!</b>\nTrạng thái PR vẫn giữ <b>Open</b>. Đang kích hoạt Claude AI tự động phân tích và gỡ conflict...`);
-            
-            const projectKeyMatch = branch.match(/^hotfix\/([A-Z]+)-\d+/);
-            const projectKey = projectKeyMatch ? projectKeyMatch[1] : '';
-            const pConfig = projectsConfig.find(p => p.projectKey === projectKey);
-            const S_DIR = (pConfig && pConfig.path && pConfig.path !== '.') ? pConfig.path : 'services';
-            
-            const resolved = await resolveConflictWithClaude(branch, S_DIR);
+
+            const resolved = await resolveConflictWithClaude(branch, targetServiceDir, serviceInfo);
 
             if (resolved) {
                 try {
-                    await mergeGitHubPR(prNumber);
+                    await mergeGitHubPR(gitRepo, prNumber);
                     removePendingPR(prNumber);
                     await editMessageText(msgId, `✅ <b>Claude đã tự giải quyết xong Conflict và Merge PR #${prNumber} thành công!</b>`);
                 } catch (e2) {
@@ -366,7 +375,20 @@ async function handleCallbackQuery(cb) {
     } else if (action.startsWith('defer|')) {
         const [, prNumStr, branch, issueKey] = action.split('|');
         const prNumber = parseInt(prNumStr, 10);
-        savePendingPR({ prNumber, branch, issueKey: issueKey || branch, date: new Date().toISOString() });
+        let extraInfo = {};
+        try {
+            extraInfo = getServiceInfoForPR(prNumber, branch);
+        } catch (e) {}
+        savePendingPR({
+            prNumber,
+            branch,
+            issueKey: issueKey || branch,
+            gitRepo: extraInfo.gitRepo,
+            prodBranch: extraInfo.prodBranch,
+            devBranch: extraInfo.devBranch,
+            targetServiceDir: extraInfo.targetServiceDir,
+            date: new Date().toISOString()
+        });
         await answerCallbackQuery(cb.id, `Đã lưu PR #${prNumber} vào danh sách đợi.`);
         await editMessageText(msgId, `⏳ <b>PR #${prNumber} đã được chuyển vào hàng đợi merge sau.</b>\n(Cập nhật bởi: @${cb.from.username || userId})`, {
             inline_keyboard: [[{ text: "📋 Xem danh sách đợi Merge", callback_data: "list_pending" }]]
@@ -396,15 +418,35 @@ async function handleCallbackQuery(cb) {
 }
 
 // --- TỰ ĐỘNG GIẢI QUYẾT CONFLICT BẰNG CLAUDE ---
-async function resolveConflictWithClaude(branchName, SERVICES_DIR = 'services') {
-    const targetBranch = GIT_PROD_BRANCH;
+async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesDir = 'services', serviceInfoParam = null) {
+    let svc = serviceInfoParam;
+    if (!svc || !svc.gitRepo || !svc.prodBranch) {
+        try {
+            svc = getServiceInfoForPR(NaN, branchName);
+        } catch (e) {
+            throw new Error(`[Fail-Safe] Không xác định được gitRepo/branches cho branch ${branchName}: ${e.message}`);
+        }
+    }
+    if (!svc || !svc.gitRepo || !svc.prodBranch) {
+        throw new Error(`[Fail-Safe] Thiếu gitRepo/prodBranch cho branch ${branchName}, không thể resolve conflict an toàn.`);
+    }
+    const targetBranch = svc.prodBranch;
+    const devBranch = svc.devBranch || 'master';
+    const gitRepo = svc.gitRepo;
+    let cwd = svc.targetServiceDir || targetServiceDirOrServicesDir;
+    try {
+        if (targetServiceDirOrServicesDir && targetServiceDirOrServicesDir !== 'services') {
+            cwd = targetServiceDirOrServicesDir;
+        }
+    } catch (e) {}
+    const pushUrlLocal = GITHUB_TOKEN ? `https://${GITHUB_TOKEN}@github.com/${gitRepo}.git` : 'origin';
     try {
         console.log(`[+] Bắt đầu gỡ conflict cho branch ${branchName}...`);
-        execSync(`git checkout ${branchName}`, { stdio: 'inherit' });
-        execSync(`git fetch origin ${targetBranch}`, { stdio: 'inherit' });
+        execSync(`git checkout ${branchName}`, { cwd, stdio: 'inherit' });
+        execSync(`git fetch origin ${targetBranch}`, { cwd, stdio: 'inherit' });
 
         try {
-            execSync(`git merge origin/${targetBranch}`, { stdio: 'pipe' });
+            execSync(`git merge origin/${targetBranch}`, { cwd, stdio: 'pipe' });
             return true; // Không có conflict
         } catch (mergeErr) {
             console.log(`[!] Xuất hiện conflict files, kích hoạt Claude...`);
@@ -413,44 +455,43 @@ async function resolveConflictWithClaude(branchName, SERVICES_DIR = 'services') 
         const conflictPrompt = `Git merge conflict occurred between ${branchName} and origin/${targetBranch}. Read CLAUDE.md. Find all files with conflict markers (<<<<<<<, =======, >>>>>>>), resolve conflicts keeping bug fixes and latest features, run build/test, and commit with message 'fix(conflict): resolve merge conflict with ${targetBranch}'.`;
 
         execSync(`claude -p "${conflictPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
+            cwd,
             stdio: 'inherit',
             timeout: CLAUDE_TIMEOUT
         });
 
         // Bắt buộc kiểm tra commit do AI thực hiện
-        await ensureAICommittedItself(branchName, "resolve conflict", SERVICES_DIR);
+        await ensureAICommittedItself(branchName, "resolve conflict", cwd, devBranch);
 
         // Push lại branch
-        execSync(`git push ${pushUrl} ${branchName}`, { stdio: 'inherit' });
+        execSync(`git push ${pushUrlLocal} ${branchName}`, { cwd, stdio: 'inherit' });
         return true;
     } catch (e) {
         console.error(`[!] Thất bại khi gỡ conflict:`, e.message);
-        try { execSync(`git merge --abort`, { stdio: 'pipe' }); } catch (abortErr) { }
+        try { execSync(`git merge --abort`, { cwd, stdio: 'pipe' }); } catch (abortErr) { }
         return false;
     } finally {
-        try { execSync(`git checkout ${GIT_DEV_BRANCH}`, { stdio: 'pipe' }); } catch (e) { }
+        try { execSync(`git checkout ${devBranch}`, { cwd, stdio: 'pipe' }); } catch (e) { }
     }
 }
 
 // --- KIỂM TRA COMMIT DO AI THỰC HIỆN (KHÔNG DÙNG SCRIPT COMMIT) ---
-async function ensureAICommittedItself(branchName, context, SERVICES_DIR = 'services') {
-    const status = execSync(`git status --porcelain`, { encoding: 'utf8' }).trim();
-    const hasUncommittedChanges = status.length > 0;
-    const newCommitCount = parseInt(execSync(`git rev-list --count ${GIT_DEV_BRANCH}..HEAD`, { encoding: 'utf8' }).trim(), 10);
-
-    if (hasUncommittedChanges) {
-        console.log(`[!] Phát hiện AI chưa tự commit. Đang yêu cầu Claude Code phân tích và commit lại...`);
-        const commitPrompt = `You modified files for ${context} but did not commit them. Run 'git status' and 'git diff'. Identify which service in ${SERVICES_DIR}/ was changed. Follow CLAUDE.md rules to stage the changed files ('git add') and commit with a proper message: 'fix(<service-name>): <description>'. Do not leave uncommitted changes.`;
-        
-        execSync(`claude -p "${commitPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
-            stdio: 'inherit',
-            timeout: 120000 // 2 phút thêm cho bước commit
-        });
+async function ensureAICommittedItself(branchName, context, worktreeDir, baseBranch = null) {
+    const cwd = worktreeDir || process.cwd();
+    const diff = execSync(`git status --porcelain`, { cwd }).toString().trim();
+    if (diff !== "") {
+        console.warn(`[!] CẢNH BÁO: Claude AI đã để lại file chưa commit sau khi ${context} tại ${cwd}!`);
+        execSync(`git add .`, { cwd });
+        execSync(`git commit -m "fix(auto): catch uncommitted changes after ${context}"`, { cwd });
+        console.log(`[+] Đã tự động commit các thay đổi rác còn sót lại.`);
     }
 
-    const finalCommitCount = parseInt(execSync(`git rev-list --count ${GIT_DEV_BRANCH}..HEAD`, { encoding: 'utf8' }).trim(), 10);
-    if (finalCommitCount === 0) {
-        throw new Error("Claude không tạo bất kỳ Git commit nào sau khi xử lý.");
+    if (baseBranch) {
+        const revTarget = branchName ? `${baseBranch}..${branchName}` : `${baseBranch}..HEAD`;
+        const finalCommitCount = parseInt(execSync(`git rev-list --count ${revTarget}`, { cwd, encoding: 'utf8' }).trim(), 10);
+        if (finalCommitCount === 0) {
+            throw new Error("Claude không tạo bất kỳ Git commit nào sau khi xử lý.");
+        }
     }
 }
 
@@ -579,57 +620,90 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         throw new Error(`[Fail-Safe Abort] Ticket ${issueKey} không có nhãn 'service:*'. Không xác định được service mục tiêu để xử lý an toàn.`);
     }
 
-    const SERVICES_DIR = projectConfig.path || 'services';
+    const projectPath = projectConfig.path || '.';
     const targetService = serviceLabel.split(':')[1];
-    const targetServiceDir = path.join(process.cwd(), SERVICES_DIR, targetService);
-    
-    if (!fs.existsSync(targetServiceDir)) {
-        throw new Error(`[Fail-Safe Abort] Service '${targetService}' không tồn tại trong '${SERVICES_DIR}'. Dừng xử lý an toàn.`);
+
+    // Đọc services.json tại project
+    const servicesJsonPath = path.join(projectPath, 'services.json');
+    if (!fs.existsSync(servicesJsonPath)) {
+        throw new Error(`[Fail-Safe Abort] Project ${projectConfig.projectKey} thiếu file ${servicesJsonPath}.`);
     }
-    const REPRO_PROMPT = getReproPrompt();
-    const VERIFY_PROMPT = getVerifyPrompt(SERVICES_DIR);
-    const GIT_DEV_BRANCH = projectConfig.gitDevBranch || process.env.GIT_DEV_BRANCH || 'main';
-    const GIT_TARGET_BRANCH = projectConfig.gitTargetBranch || process.env.GIT_TARGET_BRANCH || '';
-    const GIT_PROD_BRANCH = projectConfig.gitProdBranch || process.env.GIT_PROD_BRANCH || 'main';
+
+    let servicesData;
+    try {
+        servicesData = JSON.parse(fs.readFileSync(servicesJsonPath, 'utf8'));
+    } catch (e) {
+        throw new Error(`[Fail-Safe Abort] Không thể đọc JSON từ ${servicesJsonPath}: ${e.message}`);
+    }
+
+    const servicesList = Array.isArray(servicesData.services) ? servicesData.services : Object.values(servicesData);
+    const serviceConfig = servicesList.find(s => s.name === targetService || s.path === targetService || (s.path && s.path.endsWith(targetService)));
+
+    if (!serviceConfig) {
+        throw new Error(`[Fail-Safe Abort] Không tìm thấy service '${targetService}' trong ${servicesJsonPath}.`);
+    }
+
+    if (!serviceConfig.gitRepo || !serviceConfig.branches || !serviceConfig.branches.dev || !serviceConfig.branches.prod) {
+        throw new Error(`[Fail-Safe Abort] Service '${targetService}' thiếu gitRepo hoặc cấu hình branches (dev, prod) trong ${servicesJsonPath}.`);
+    }
+
+    const targetServiceDir = path.join(process.cwd(), projectPath, serviceConfig.path || targetService);
+    if (!fs.existsSync(targetServiceDir)) {
+        throw new Error(`[Fail-Safe Abort] Thư mục service '${targetServiceDir}' không tồn tại.`);
+    }
+
+    const devBranch = serviceConfig.branches.dev;
+    const prodBranch = serviceConfig.branches.prod;
+    const targetBranch = serviceConfig.branches.target || '';
+    const gitRepo = serviceConfig.gitRepo;
+    const pushUrl = GITHUB_TOKEN ? `https://${GITHUB_TOKEN}@github.com/${gitRepo}.git` : 'origin';
 
     const branchName = `hotfix/${issueKey}`;
+    const worktreeDir = path.join(targetServiceDir, '.worktrees', branchName);
+
     console.log(`\n========================================`);
     console.log(`[+] Phát hiện Bug mới: ${issueKey} - ${summary}`);
-
+    console.log(`[+] Target Repo: ${gitRepo} | Service: ${targetService} | Dev Branch: ${devBranch}`);
 
     try {
-        // 1. Cấu hình danh tính Git cục bộ
-        execSync(`git config user.name "${GIT_AUTHOR_NAME}"`, { stdio: 'pipe' });
-        execSync(`git config user.email "${GIT_AUTHOR_EMAIL}"`, { stdio: 'pipe' });
+        // 1. Dọn dẹp worktree cũ nếu bị kẹt
+        try {
+            execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
+        } catch(e) {}
 
-        // 2. Kéo code mới nhất từ nhánh xuất phát (GIT_DEV_BRANCH)
-        console.log(`[+] Cập nhật code mới nhất từ ${GIT_DEV_BRANCH}...`);
-        execSync(`git checkout ${GIT_DEV_BRANCH}`, { stdio: 'pipe' });
-        try { execSync(`git pull origin ${GIT_DEV_BRANCH}`, { stdio: 'pipe' }); } catch(e){}
+        // 2. Cấu hình danh tính Git trong repo service
+        execSync(`git config user.name "${GIT_AUTHOR_NAME}"`, { cwd: targetServiceDir, stdio: 'pipe' });
+        execSync(`git config user.email "${GIT_AUTHOR_EMAIL}"`, { cwd: targetServiceDir, stdio: 'pipe' });
 
-        // 3. Tạo nhánh sửa lỗi
-        try { execSync(`git branch -D ${branchName}`, { stdio: 'pipe' }); } catch(e){}
-        execSync(`git checkout -b ${branchName}`, { stdio: 'inherit' });
+        // 3. Kéo code mới nhất từ remote
+        console.log(`[+] Kéo code mới nhất từ origin/${devBranch}...`);
+        execSync(`git fetch origin`, { cwd: targetServiceDir, stdio: 'pipe' });
 
-        // 4. Kích hoạt Claude Code Headless (Repro -> Fix -> Verify)
+        // 4. Tạo Git Worktree độc lập
+        try {
+            execSync(`git branch -D ${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
+        } catch(e) {}
+        console.log(`[+] Tạo git worktree tại .worktrees/${branchName}...`);
+        execSync(`git worktree add -b ${branchName} .worktrees/${branchName} origin/${devBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+
+        // 5. Chuẩn bị prompt và thư mục evidence
         let attachmentInfo = "";
         if (attachments.length > 0) {
             attachmentInfo = "Attachments available:\n" + attachments.map(a => `- ${a.filename}: ${a.content}`).join("\n");
         }
 
-        const fixPrompt = `Fix Jira bug: ${summary}. ${attachmentInfo}. Read CLAUDE.md for services map and rules. Locate the responsible service in ${SERVICES_DIR}/, make minimal code changes, run its test command, and commit the fix following the commit conventions (fix(<service>): ...).`;
+        const fixPrompt = `Fix Jira bug: ${summary}. ${attachmentInfo}. Read CLAUDE.md for rules. Make minimal code changes, run its test command, and commit the fix following the commit conventions (fix(<service>): ...).`;
 
         // Dọn dẹp evidence cũ của ticket này (nếu có)
-        const beforeEvidencePath = path.join(process.cwd(), 'evidence', issueKey, 'before');
-        const afterEvidencePath = path.join(process.cwd(), 'evidence', issueKey, 'after');
         fs.rmSync(path.join(process.cwd(), 'evidence', issueKey), { recursive: true, force: true });
         evidenceHelper.ensureEvidenceDir(issueKey);
-        // Phục hồi lại file log sau khi rmSync
         evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, JSON.stringify(description) || summary);
 
+        // 6. Bước 1: Repro Bug trong worktree
         console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${CLAUDE_TIMEOUT}ms)...`);
-        const reproPrompt = REPRO_PROMPT.replace(/\{JIRA_KEY\}/g, issueKey);
+        const reproPrompt = getReproPrompt().replace(/\{JIRA_KEY\}/g, issueKey);
         const reproOutput = execSync(`claude -p "Bug: ${summary}. ${reproPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
+            cwd: worktreeDir,
             stdio: ['inherit', 'pipe', 'pipe'],
             timeout: CLAUDE_TIMEOUT,
             encoding: 'utf8'
@@ -645,154 +719,46 @@ async function processBug(issueKey, summary, description, attachments, projectCo
             throw new Error(`Repro fail: AI không tạo bằng chứng trong 'evidence/${issueKey}/before'.`);
         }
 
-        // Báo động 1: Gửi Telegram kèm file log và ảnh repro (before)
         await evidenceHelper.sendEvidenceToTelegram(issueKey, 'before', `🚨 <b>LỖI MỚI PHÁT HIỆN & REPRO</b>\n<b>Ticket:</b> ${issueKey}\n<b>Summary:</b> ${summary}`);
 
-        console.log(`[+] Bước 2: Fix Bug...`);
+        // 7. Bước 2: Fix Bug trong worktree
+        console.log(`[+] Bước 2: Fix Bug trong worktree...`);
         execSync(`claude -p "${fixPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
+            cwd: worktreeDir,
             stdio: 'inherit',
             timeout: CLAUDE_TIMEOUT
         });
 
-        // 3. Kiểm tra AI đã commit chưa sau khi Fix
-        await ensureAICommittedItself(branchName, `ticket ${issueKey}`, SERVICES_DIR);
+        // 8. Đảm bảo AI đã tự commit
+        await ensureAICommittedItself(branchName, `ticket ${issueKey}`, worktreeDir, devBranch);
 
-        // 4. Merge hotfix vào DEV
-        console.log(`[+] Merge hotfix ${branchName} vào ${GIT_DEV_BRANCH}...`);
-        execSync(`git checkout ${GIT_DEV_BRANCH}`, { stdio: 'pipe' });
-        execSync(`git merge ${branchName} --no-edit`, { stdio: 'pipe' });
-        try { execSync(`git push ${pushUrl} ${GIT_DEV_BRANCH}`, { stdio: 'pipe' }); } catch(e) {
-            console.warn(`[!] Không thể push ${GIT_DEV_BRANCH}: ${e.message}`);
-        }
+        // 9. Push branch hotfix lên gitRepo tương ứng
+        console.log(`[+] Đang push nhánh ${branchName} lên ${gitRepo}...`);
+        execSync(`git push -u ${pushUrl} ${branchName} --force`, { cwd: targetServiceDir, stdio: 'inherit' });
 
-        // 5. Merge DEV vào TARGET (nếu có) để deploy dev/demo và chờ health
-        let isPreprodReady = false;
-        if (GIT_TARGET_BRANCH && GIT_TARGET_BRANCH !== GIT_DEV_BRANCH) {
-            console.log(`[+] Auto-merge ${GIT_DEV_BRANCH} vào ${GIT_TARGET_BRANCH} để trigger CI/CD deploy dev/demo...`);
-            try {
-                execSync(`git fetch origin ${GIT_TARGET_BRANCH} || true`, { stdio: 'pipe' });
-                execSync(`git checkout ${GIT_TARGET_BRANCH} || git checkout -b ${GIT_TARGET_BRANCH}`, { stdio: 'pipe' });
-                execSync(`git merge ${GIT_DEV_BRANCH} --no-edit`, { stdio: 'pipe' });
-                execSync(`git push ${pushUrl} ${GIT_TARGET_BRANCH}`, { stdio: 'pipe' });
-                console.log(`[+] Đã trigger CI/CD trên ${GIT_TARGET_BRANCH}.`);
-                isPreprodReady = await waitForPreprodReady(PREPROD_HEALTH_URL, SERVICES_DIR, 180000);
-            } catch(e) {
-                console.warn(`[!] Không thể auto-merge vào ${GIT_TARGET_BRANCH}: ${e.message}`);
-            } finally {
-                execSync(`git checkout ${branchName}`, { stdio: 'pipe' });
-            }
-        } else {
-            // Không có TARGET branch riêng biệt thì quay lại branch hotfix
-            execSync(`git checkout ${branchName}`, { stdio: 'pipe' });
-            // Thử check health nếu có config
-            isPreprodReady = await waitForPreprodReady(PREPROD_HEALTH_URL, SERVICES_DIR, 30000);
-        }
-
-        console.log(`[+] Bước 5: Verify Bug...`);
-        let actualVerifyPrompt = VERIFY_PROMPT.replace(/\{JIRA_KEY\}/g, issueKey);
-        const needFallbackUnitTest = (GIT_TARGET_BRANCH && !isPreprodReady);
-        if (needFallbackUnitTest) {
-            actualVerifyPrompt = `BỎ QUA KIỂM TRA DOMAIN/IP. BẮT BUỘC TẠO/SỬA ĐẦY ĐỦ UNIT TEST: sử dụng JUnit 5 + Mock data (Mockito) để test toàn bộ các case (happy path, edge cases, error). Chạy './mvnw clean test jacoco:report' (trong ${SERVICES_DIR}/api). Yêu cầu chỉ số JaCoCo coverage (trong target/site/jacoco/jacoco.csv) phải > 90% cho file code được sửa. Bắt buộc copy file báo cáo JaCoCo (jacoco.csv hoặc html) và kết quả unit test vào thư mục 'evidence/{JIRA_KEY}/after'. NẾU LỖI CHƯA ĐƯỢC FIX, HÃY DỪNG LẠI VÀ IN CHÍNH XÁC: [AI_STOP] VERIFY_FAILED: <lý do>`.replace(/\{JIRA_KEY\}/g, issueKey);
-        }
-
-        let coverage = 0;
-        let turn = 0;
-        let verifyOutput = "";
-        const csvPath = path.join(process.cwd(), SERVICES_DIR, 'api', 'target', 'site', 'jacoco', 'jacoco.csv');
-        const afterDir = path.join(process.cwd(), 'evidence', issueKey, 'after');
-
-        // Chỉ chạy loop coverage khi fallback unit-test (needFallbackUnitTest là true)
-        if (needFallbackUnitTest) {
-            while (coverage < 90 && turn < 3) {
-                turn++;
-                console.log(`[+] Đang chạy Verify Unit Test (Lần ${turn})...`);
-
-                let currentPrompt = actualVerifyPrompt;
-                let envOptions = {
-                    stdio: ['inherit', 'pipe', 'pipe'],
-                    timeout: CLAUDE_TIMEOUT,
-                    encoding: 'utf8',
-                    env: { ...process.env }
-                };
-
-                if (turn > 1) {
-                    envOptions.env.AUTOFIX_PHASE = 'test-only';
-                    currentPrompt = `Current Jacoco coverage is ${coverage.toFixed(2)}%. It must be > 90%. BỔ SUNG CASE VÀO FILE TEST (trong src/test/java). NGHIÊM CẤM SỬA FILE SOURCE src/main/java để cheat coverage (AUTOFIX_PHASE=test-only). Run './mvnw clean test jacoco:report' and save evidence.`;
-                }
-
-                try {
-                    verifyOutput = execSync(`claude -p "Bug: ${summary}. ${currentPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, envOptions);
-                    console.log(verifyOutput);
-                } catch (err) {
-                    console.error(`Lỗi khi chạy verify: ${err.message}`);
-                    if (err.stdout) console.log(err.stdout.toString('utf8'));
-                    if (err.stderr) console.error(err.stderr.toString('utf8'));
-                    throw err;
-                }
-
-                if (verifyOutput.includes('[AI_STOP]')) {
-                    break;
-                }
-
-                coverage = parseJacocoCoverage(csvPath);
-                console.log(`[+] Jacoco Coverage đạt: ${coverage.toFixed(2)}%`);
-                if (coverage >= 90) break;
-            }
-
-            if (coverage < 90 && fs.existsSync(csvPath)) {
-                throw new Error(`Verify fail: Không đạt đủ 90% coverage sau 3 lần thử (đạt ${coverage.toFixed(2)}%).`);
-            }
-        } else {
-            // Verify thông thường (đã deploy dev/demo hoặc test domain/local)
-            console.log(`[+] Đang chạy Verify domain/local...`);
-            try {
-                verifyOutput = execSync(`claude -p "Bug: ${summary}. ${actualVerifyPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
-                    stdio: ['inherit', 'pipe', 'pipe'],
-                    timeout: CLAUDE_TIMEOUT,
-                    encoding: 'utf8'
-                });
-                console.log(verifyOutput);
-            } catch (err) {
-                console.error(`Lỗi khi chạy verify: ${err.message}`);
-                if (err.stdout) console.log(err.stdout.toString('utf8'));
-                if (err.stderr) console.error(err.stderr.toString('utf8'));
-                throw err;
-            }
-        }
-
-        if (verifyOutput.includes('[AI_STOP]')) {
-            const reason = verifyOutput.match(/\[AI_STOP\]\s*(.*)/)?.[1] || "AI chủ động dừng tại bước Verify.";
-            throw new Error(`Verify aborted: ${reason}`);
-        }
-
-        // Kiểm tra bắt buộc evidence/after từ phía worker
-        if (!fs.existsSync(afterDir) || fs.readdirSync(afterDir).length === 0) {
-            throw new Error(`Verify fail: AI không tạo bằng chứng trong 'evidence/${issueKey}/after' theo yêu cầu.`);
-        }
-
-        // 7. Push branch fix bằng Token cô lập
-        console.log(`[+] Đang push nhánh ${branchName}...`);
-        execSync(`git push -u ${pushUrl} ${branchName} --force`, { stdio: 'inherit' });
-
-        // 8. Tự động tạo Pull Request trên GitHub vào GIT_PROD_BRANCH (nhánh quan trọng)
-        console.log(`[+] Tự động mở Pull Request vào nhánh ${GIT_PROD_BRANCH}...`);
+        // 10. Tạo PR trên GitHub vào prodBranch của service
+        console.log(`[+] Tự động mở Pull Request vào ${prodBranch} trên ${gitRepo}...`);
         const pr = await createGitHubPR(
+            gitRepo,
+            prodBranch,
             branchName,
             `[Auto-Fix] ${issueKey}: ${summary}`,
-            `Auto-generated fix by Claude Code for Jira ticket **${issueKey}**.\n\nSummary: ${summary}\nDev Branch: \`${GIT_DEV_BRANCH}\`\nProd Target: \`${GIT_PROD_BRANCH}\``
+            `Auto-generated fix by Claude Code for Jira ticket **${issueKey}**.\n\nSummary: ${summary}\nDev Branch: \`${devBranch}\`\nProd Target: \`${prodBranch}\``
         );
 
-        // 9. Kiểm tra và Comment báo cáo JaCoCo vào Jira (nếu có)
-        try {
-            if (fs.existsSync(csvPath)) {
-                const lines = fs.readFileSync(csvPath, 'utf8').trim().split('\n');
-                if (lines.length > 1) {
-                    await addJiraComment(issueKey, `🤖 AI Auto-Fix Report:\n- PR đã mở: ${pr.html_url}\n- Đã chạy Unit Test và sinh báo cáo JaCoCo Coverage (>90%). Bằng chứng đã được lưu trong evidence/after.`);
-                }
-            }
-        } catch (e) { }
+        // Lưu PR info vào danh sách chờ
+        savePendingPR({
+            prNumber: pr.number,
+            branch: branchName,
+            issueKey: issueKey,
+            gitRepo: gitRepo,
+            devBranch: devBranch,
+            prodBranch: prodBranch,
+            targetServiceDir: targetServiceDir,
+            date: new Date().toISOString()
+        });
 
-        // Báo động 2: Báo kết quả kèm các nút duyệt với cú pháp split('|')
+        // 11. Báo cáo Telegram kèm nút duyệt Merge
         const keyboard = {
             inline_keyboard: [
                 [
@@ -800,47 +766,39 @@ async function processBug(issueKey, summary, description, attachments, projectCo
                     { text: "⏳ Lưu vào hàng đợi", callback_data: `defer|${pr.number}|${branchName}|${issueKey}` }
                 ],
                 [
-                    { text: "📋 Xem danh sách đợi Merge", callback_data: "list_pending" }
+                    { text: "🔗 Xem PR trên GitHub", url: pr.html_url }
                 ]
             ]
         };
 
-        await evidenceHelper.sendEvidenceToTelegram(issueKey, 'after',
-            `✅ <b>ĐÃ SỬA VÀ TẠO PR THÀNH CÔNG!</b>\n\n` +
-            `• <b>Ticket:</b> ${issueKey}\n` +
-            `• <b>PR:</b> <a href="${pr.html_url}">PR #${pr.number}</a> ➔ <code>${GIT_PROD_BRANCH}</code>\n\n` +
-            `Chọn hành động bên dưới:`,
+        await sendTelegramMessage(
+            `🚀 <b>ĐÃ FIX & TẠO PR THÀNH CÔNG!</b>\n\n` +
+            `• <b>Ticket:</b> <code>${issueKey}</code>\n` +
+            `• <b>Service:</b> <code>${targetService}</code> (${gitRepo})\n` +
+            `• <b>Summary:</b> ${summary}\n` +
+            `• <b>Branch:</b> <code>${branchName}</code> -> <code>${prodBranch}</code>\n` +
+            `• <b>Pull Request:</b> <a href="${pr.html_url}">#${pr.number}</a>\n\n` +
+            `<i>Chọn hành động bên dưới:</i>`,
             keyboard
         );
 
-    } catch (err) {
-        console.error(`[!] Lỗi khi xử lý ${issueKey}:`, err.message);
+        // 12. Cập nhật Jira
+        await addJiraComment(
+            issueKey,
+            `✅ [Auto-Fix Bot] Đã tạo Pull Request sửa lỗi thành công!\n\n` +
+            `- Repository: ${gitRepo}\n` +
+            `- PR: ${pr.html_url}\n` +
+            `- Branch: ${branchName} -> ${prodBranch}\n` +
+            `- Chờ review và duyệt merge vào production.`
+        );
 
-        await markJiraIssueFailed(issueKey, err.message);
-
-        const isTimeout = err.killed || err.signal === 'SIGTERM' || err.message.includes('ETIMEDOUT');
-        const errorDesc = isTimeout
-            ? `AI đã chạy quá thời gian cho phép (${CLAUDE_TIMEOUT / 1000}s) và bị dừng tiến trình để ngắt chi phí.`
-            : err.message;
-
-        await sendTelegramMessage(`❌ <b>Lỗi trong quá trình xử lý ${issueKey}</b>\nNguyên nhân: ${errorDesc}\n<i>(Ticket đã được gắn nhãn auto-fix-failed để tránh lặp vô tận)</i>`);
     } finally {
-        try { execSync(`git checkout ${GIT_DEV_BRANCH}`, { stdio: 'pipe' }); } catch (e) { }
+        // Luôn dọn dẹp worktree sau khi xử lý xong
+        console.log(`[+] Dọn dẹp Git Worktree .worktrees/${branchName}...`);
+        try {
+            execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
+        } catch(e) {
+            console.warn(`[!] Không thể xóa worktree .worktrees/${branchName}: ${e.message}`);
+        }
     }
 }
-
-
-// --- KHỞI ĐỘNG HỆ THỐNG (SINGLETON MASTER) ---
-console.log("🚀 Singleton Master Worker Level 3 đã sẵn sàng...");
-console.log(`• MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS}`);
-pollTelegramUpdates();
-
-(async function masterLoop() {
-    while (true) {
-        if (!isScanning) {
-            isScanning = true;
-            try { await checkJiraForBugs(); } finally { isScanning = false; }
-        }
-        await new Promise(r => setTimeout(r, 15000));
-    }
-})();
