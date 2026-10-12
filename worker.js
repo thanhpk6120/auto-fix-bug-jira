@@ -797,10 +797,13 @@ async function processBug(issueKey, summary, description, attachments, projectCo
     console.log(`[+] Target Repo: ${gitRepo} | Service: ${targetService} | Dev Branch: ${devBranch}`);
 
     try {
-        // 1. Dọn dẹp worktree cũ nếu bị kẹt
+        // 1. Dọn dẹp worktree cũ nếu bị kẹt (remove fail -> xóa thư mục vật lý fallback)
         try {
             execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
-        } catch(e) {}
+        } catch(e) {
+            try { fs.rmSync(path.join(targetServiceDir, '.worktrees', branchName), { recursive: true, force: true }); } catch(err) {}
+            try { execSync(`git worktree prune`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch(err) {}
+        }
 
         // 2. Cấu hình danh tính Git trong repo service
         execSync(`git config user.name "${GIT_AUTHOR_NAME}"`, { cwd: targetServiceDir, stdio: 'pipe' });
@@ -940,13 +943,18 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         );
 
     } finally {
-        // Luôn dọn dẹp worktree sau khi xử lý xong
+        // Luôn dọn dẹp worktree sau khi xử lý xong (remove fail -> prune + xóa thư mục mồ côi)
         console.log(`[+] Dọn dẹp Git Worktree .worktrees/${branchName}...`);
         try {
             execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
         } catch(e) {
             console.warn(`[!] Không thể xóa worktree .worktrees/${branchName}: ${e.message}`);
         }
+        try { execSync(`git worktree prune`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch(err) {}
+        try {
+            const orphanDir = path.join(targetServiceDir, '.worktrees', branchName);
+            if (fs.existsSync(orphanDir)) fs.rmSync(orphanDir, { recursive: true, force: true });
+        } catch(err) {}
     }
 }
 
