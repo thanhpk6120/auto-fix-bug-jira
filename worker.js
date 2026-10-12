@@ -578,19 +578,44 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
 // --- KIỂM TRA COMMIT DO AI THỰC HIỆN (KHÔNG DÙNG SCRIPT COMMIT) ---
 async function ensureAICommittedItself(branchName, context, worktreeDir, baseBranch = null) {
     const cwd = worktreeDir || process.cwd();
-    const diff = execSync(`git status --porcelain`, { cwd }).toString().trim();
-    if (diff !== "") {
+    // Đảm bảo không add evidence/ vào commit rác
+    const diffStatus = execSync(`git status --porcelain`, { cwd }).toString().trim();
+    if (diffStatus !== "") {
         console.warn(`[!] CẢNH BÁO: Claude AI đã để lại file chưa commit sau khi ${context} tại ${cwd}!`);
-        execSync(`git add .`, { cwd });
-        execSync(`git commit -m "fix(auto): catch uncommitted changes after ${context}"`, { cwd });
-        console.log(`[+] Đã tự động commit các thay đổi rác còn sót lại.`);
+        
+        // Chỉ add các file không phải evidence
+        const lines = diffStatus.split('\n');
+        let hasNonEvidence = false;
+        for (const line of lines) {
+            const file = line.substring(3).trim();
+            if (!file.startsWith('evidence/')) {
+                execSync(`git add "${file}"`, { cwd });
+                hasNonEvidence = true;
+            }
+        }
+        
+        if (hasNonEvidence) {
+            execSync(`git commit -m "fix(auto): catch uncommitted changes after ${context}"`, { cwd });
+            console.log(`[+] Đã tự động commit các thay đổi rác (loại trừ evidence).`);
+        }
     }
 
     if (baseBranch) {
-        const revTarget = branchName ? `${baseBranch}..${branchName}` : `${baseBranch}..HEAD`;
+        const revTarget = branchName ? `origin/${baseBranch}..${branchName}` : `origin/${baseBranch}..HEAD`;
         const finalCommitCount = parseInt(execSync(`git rev-list --count ${revTarget}`, { cwd, encoding: 'utf8' }).trim(), 10);
         if (finalCommitCount === 0) {
             throw new Error("Claude không tạo bất kỳ Git commit nào sau khi xử lý.");
+        }
+        
+        // Kiểm tra bắt buộc phải có thay đổi trong source code (bỏ qua file evidence, md, json cấu hình không quan trọng nếu chỉ có 1 mình nó)
+        const changedFiles = execSync(`git diff --name-only ${revTarget}`, { cwd, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+        const hasSrcChanges = changedFiles.some(f => 
+            f.includes('/src/') || f.endsWith('.java') || f.endsWith('.js') || f.endsWith('.ts') || f.endsWith('.jsx') || f.endsWith('.tsx') || f.endsWith('pom.xml') || f.endsWith('package.json')
+        );
+        
+        if (!hasSrcChanges) {
+            console.warn(`[!] Các file đã sửa:`, changedFiles);
+            throw new Error("PR rỗng hoặc chỉ chứa file rác/evidence. Không có thay đổi nào trong mã nguồn (src). AI đã bỏ cuộc hoặc lách luật.");
         }
     }
 }
@@ -787,13 +812,28 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         console.log(`[+] Tạo git worktree tại .worktrees/${branchName}...`);
         execSync(`git worktree add -b ${branchName} .worktrees/${branchName} origin/${devBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
 
+        // 4b. Copy CLAUDE.md context vào worktree để Claude Code có rules
+        try {
+            const rootClaudeMd = path.join(process.cwd(), 'CLAUDE.md');
+            const worktreeClaudeMd = path.join(worktreeDir, 'CLAUDE.md');
+            if (fs.existsSync(rootClaudeMd) && !fs.existsSync(worktreeClaudeMd)) {
+                fs.copyFileSync(rootClaudeMd, worktreeClaudeMd);
+                console.log(`[+] Đã copy CLAUDE.md vào worktree.`);
+            }
+        } catch(e) { console.warn(`[!] Không thể copy CLAUDE.md: ${e.message}`); }
         // 5. Chuẩn bị prompt và thư mục evidence
         let attachmentInfo = "";
         if (attachments.length > 0) {
             attachmentInfo = "Attachments available:\n" + attachments.map(a => `- ${a.filename}: ${a.content}`).join("\n");
         }
 
-        const fixPrompt = `Fix Jira bug: ${summary}. ${attachmentInfo}. Read CLAUDE.md for rules. Make minimal code changes, run its test command, and commit the fix following the commit conventions (fix(<service>): ...).`;
+        let serviceTestCmd = "'./mvnw clean test' or 'mvn clean test'";
+        let commitPrefix = "fix(api)";
+        if (targetService === 'web') {
+            serviceTestCmd = "'npm test' or 'npm run build'";
+            commitPrefix = "fix(web)";
+        }
+        const fixPrompt = `Fix bug: ${summary}. ${attachmentInfo}. Locate the bug, modify the source code with minimal changes in the 'src' directory, run verification command ${serviceTestCmd}, ensure it passes, commit the fix using 'git commit -m "${commitPrefix}: ..."' following conventional commits. DO NOT commit any files from the 'evidence' folder. Do not fail.`;
 
         // Dọn dẹp evidence cũ của ticket này (nếu có)
         fs.rmSync(path.join(process.cwd(), 'evidence', issueKey), { recursive: true, force: true });
@@ -903,3 +943,18 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         }
     }
 }
+
+// --- KHỞI ĐỘNG HỆ THỐNG (SINGLETON MASTER) ---
+console.log("🚀 Singleton Master Worker Level 3 đã sẵn sàng...");
+console.log(`• MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS}`);
+pollTelegramUpdates();
+
+(async function masterLoop() {
+    while (true) {
+        if (!isScanning) {
+            isScanning = true;
+            try { await checkJiraForBugs(); } finally { isScanning = false; }
+        }
+        await new Promise(r => setTimeout(r, 15000));
+    }
+})();
