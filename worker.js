@@ -813,7 +813,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
             execSync(`git branch -D ${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
         } catch(e) {}
         console.log(`[+] Tạo git worktree tại .worktrees/${branchName}...`);
-        execSync(`git worktree add -b ${branchName} .worktrees/${branchName} origin/${devBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        execSync(`git worktree add -B ${branchName} .worktrees/${branchName} origin/${devBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
 
         // 4b. Copy CLAUDE.md context vào worktree để Claude Code có rules
         try {
