@@ -1,4 +1,23 @@
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
+
+function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false) {
+    const args = ['-p', prompt, '--model', CLAUDE_MODEL, '--dangerously-skip-permissions'];
+    const options = {
+        cwd,
+        timeout,
+        encoding: 'utf8',
+        shell: true,
+        windowsHide: true,
+        stdio: captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit'
+    };
+    const res = spawnSync('claude', args, options);
+    if (res.error) throw res.error;
+    if (res.status !== 0 && res.status !== null) {
+        const errText = res.stderr ? res.stderr.toString() : '';
+        throw new Error(`Claude exited with code ${res.status}: ${errText}`);
+    }
+    return res.stdout ? res.stdout.toString() : '';
+}
 const fs = require('fs');
 const path = require('path');
 
@@ -554,11 +573,7 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
 
         const conflictPrompt = `Git merge conflict occurred between ${branchName} and origin/${targetBranch}. Read CLAUDE.md. Find all files with conflict markers (<<<<<<<, =======, >>>>>>>), resolve conflicts keeping bug fixes and latest features, run build/test, and commit with message 'fix(conflict): resolve merge conflict with ${targetBranch}'.`;
 
-        execSync(`claude -p "${conflictPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
-            cwd,
-            stdio: 'inherit',
-            timeout: CLAUDE_TIMEOUT
-        });
+        runClaude(conflictPrompt, cwd, CLAUDE_TIMEOUT, false);
 
         // Bắt buộc kiểm tra commit do AI thực hiện
         await ensureAICommittedItself(branchName, "resolve conflict", cwd, devBranch);
@@ -852,12 +867,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         // 6. Bước 1: Repro Bug trong worktree
         console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${CLAUDE_TIMEOUT}ms)...`);
         const reproPrompt = getReproPrompt().replace(/\{JIRA_KEY\}/g, issueKey);
-        const reproOutput = execSync(`claude -p "Bug: ${summary}. ${reproPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
-            cwd: worktreeDir,
-            stdio: ['inherit', 'pipe', 'pipe'],
-            timeout: CLAUDE_TIMEOUT,
-            encoding: 'utf8'
-        });
+        const reproOutput = runClaude(`Bug: ${summary}. ${reproPrompt}`, worktreeDir, CLAUDE_TIMEOUT, true);
         console.log(reproOutput);
         if (reproOutput.includes('[AI_STOP]')) {
             const reason = reproOutput.match(/\[AI_STOP\]\s*(.*)/)?.[1] || "AI chủ động dừng tại bước Repro.";
@@ -873,11 +883,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
 
         // 7. Bước 2: Fix Bug trong worktree
         console.log(`[+] Bước 2: Fix Bug trong worktree...`);
-        execSync(`claude -p "${fixPrompt}" --model ${CLAUDE_MODEL} --dangerously-skip-permissions`, {
-            cwd: worktreeDir,
-            stdio: 'inherit',
-            timeout: CLAUDE_TIMEOUT
-        });
+        runClaude(fixPrompt, worktreeDir, CLAUDE_TIMEOUT, false);
 
         // 8. Đảm bảo AI đã tự commit
         await ensureAICommittedItself(branchName, `ticket ${issueKey}`, worktreeDir, devBranch);
