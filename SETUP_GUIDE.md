@@ -108,15 +108,23 @@ Nếu **không** trả lời, xử lý theo thông báo lỗi:
 
 | Thông báo lỗi | Nguyên nhân | Cách xử lý |
 |---|---|---|
-| `API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)` | Endpoint của Claude CLI đang trỏ vào **relay nội bộ đã tắt** (thường qua biến `ANTHROPIC_BASE_URL=http://localhost:<port>/v1`) | **Cách 1 (khuyến nghị):** chạy `claude` (interactive) → gõ `/login` → đăng nhập bằng **OAuth** tài khoản Anthropic → thử lại `claude -p "ping"`. <br> **Cách 2:** đặt `ANTHROPIC_BASE_URL` trỏ tới **endpoint thật** rồi dùng API key thật của Anthropic. <br> **Cách 3:** khởi động lại app relay nội bộ đang phục vụ cổng đó. |
+| `API Error: Connection refused (ECONNREFUSED)` | CLI trỏ vào relay nội bộ đã tắt | Xem cách xử lý bên dưới ↓ |
 | `Invalid API key · Fix external API key` | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` là key của relay nội bộ, không phải key Anthropic thật | Dùng **Cách 1** ở trên (`claude` → `/login`). Xoá 2 biến `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` khỏi môi trường nếu chúng trỏ tới relay cũ. |
 | `Not logged in · Please run /login` | Chưa đăng nhập Claude Code | Chạy `claude` (interactive) → gõ `/login` → đăng nhập → thử lại `claude -p "ping"`. |
 | `command not found` | Chưa cài Claude Code | `npm i -g @anthropic-ai/claude-code` → kiểm tra `where claude`. |
 
+**Cách xử lý lỗi `Connection refused`:**
+
+1. **Cách 1 (khuyến nghị):** chạy `claude` (interactive) → gõ `/login` → đăng nhập bằng **OAuth** tài khoản Anthropic → thử lại `claude -p "ping"`.
+2. **Cách 2:** đặt `ANTHROPIC_BASE_URL` trỏ tới **endpoint thật** rồi dùng API key thật của Anthropic.
+3. **Cách 3:** khởi động lại app relay nội bộ đang phục vụ cổng đó.
+
 > Xoá biến cũ (PowerShell, chỉ trong terminal hiện tại):
-> ```powershell
-> $env:ANTHROPIC_BASE_URL=''; $env:ANTHROPIC_API_KEY=''; $env:ANTHROPIC_AUTH_TOKEN=''
-> ```
+
+```powershell
+$env:ANTHROPIC_BASE_URL=''; $env:ANTHROPIC_API_KEY=''; $env:ANTHROPIC_AUTH_TOKEN=''
+```
+
 > Hoặc xoá vĩnh viễn: `setx ANTHROPIC_BASE_URL ""` (Windows → System Properties → Environment Variables).
 >
 > Sau khi đăng nhập OAuth, **worker chạy ở CMD riêng** sẽ dùng đúng credential đó. Không chạy worker từ trong phiên Claude Code đang mở (tránh kẹt process và hook).
@@ -438,10 +446,7 @@ File `.env` hiện tại **không có** biến `TELEGRAM_*` → `pollTelegramUpd
 2. Gõ `/newbot` → Enter.
 3. Nhận **tên hiển thị** của bot, ví dụ: `SHOP AutoFix Bot`.
 4. Nhận **username** của bot, bắt buộc kết thúc bằng `bot`, ví dụ: `shop_autofix_bot`.
-5. BotFather trả về **HTTP API token**, dạng:
-   ```
-   1234567890:AAH1aV...r8sXk
-   ```
+5. BotFather trả về **HTTP API token**, dạng `1234567890:AAH1aV...r8sXk`
    → copy nguyên văn (giữ dấu `:`) → điền vào `TELEGRAM_BOT_TOKEN` trong `.env`.
 
 ### G.2. Tạo nhóm On-call (khuyến nghị) và lấy CHAT_ID
@@ -454,10 +459,10 @@ File `.env` hiện tại **không có** biến `TELEGRAM_*` → `pollTelegramUpd
 curl "https://api.telegram.org/bot<BOT_TOKEN>/getUpdates?offset=-1"
 ```
 
-4. Trong JSON trả về, tìm:
-   ```json
-   "chat": { "id": -1001234567890, "type": "supergroup", "title": "SHOP On-call" }
-   ```
+4. Trong JSON trả về, tìm dòng có `"chat"` — ví dụ:
+
+   `"chat": { "id": -1001234567890, "type": "supergroup", "title": "SHOP On-call" }`
+
    → `chat.id` (số âm với nhóm/supergroup, số dương với chat riêng) chính là `TELEGRAM_CHAT_ID`.
 
 > Nếu kết quả `{"ok":true,"result":[]}` → bot chưa nhận được message nào. Nhắn thêm 1 tin trong nhóm rồi chạy lại lệnh (chờ vài giây).
@@ -468,9 +473,9 @@ curl "https://api.telegram.org/bot<BOT_TOKEN>/getUpdates?offset=-1"
 
 1. Trong Telegram, mở `@userinfobot` → **Start** → bot trả về `Id: 123456789`, `First name: ...`.
 2. Lấy `Id` đó → điền vào `TELEGRAM_ALLOWED_USER_IDS` (nhiều người thì phân cách bằng dấu phẩy, không khoảng trắng):
-   ```ini
-   TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
-   ```
+
+   `TELEGRAM_ALLOWED_USER_IDS=123456789,987654321`
+
 3. Kiểm tra danh sách bot trong nhóm: mở nhóm → member list → xác nhận bot đã vào.
 
 > Chỉ user id nằm trong `TELEGRAM_ALLOWED_USER_IDS` mới bấm được nút Merge; user khác bấm sẽ nhận `⛔ Bạn không có quyền duyệt tác vụ này!` (`worker.js:425-428`).
@@ -591,9 +596,9 @@ Mong đợi: `postgres`, `redis`, `web`, `worker` đều `Up`.
    - `SHOP-be` (backend shop), `SHOP-fe` (frontend shop)
    - `CMS-be`, `CMS-fe`
 5. Sau khi tạo → copy **DSN**, dạng:
-   ```
-   http://<PROJECT_KEY>@<GLITCHTIP_HOST>:8000/<PROJECT_ID>
-   ```
+
+   `http://<PROJECT_KEY>@<GLITCHTIP_HOST>:8000/<PROJECT_ID>`
+
    ⚠️ **Không ghi DSN thật vào tài liệu** — điền vào cấu hình service ở Bước 7.
 
 ---
@@ -832,27 +837,33 @@ taskkill /F /FI "WINDOWTITLE eq Jira-AutoFix-Worker*" /T
 > **Chạy worker ở CMD riêng**, không chạy từ trong phiên Claude Code (tránh kẹt process/hook).
 > ⚠️ **Sửa `projects.json` / `services.json` phải restart worker.** Worker đọc `projects.json` **đúng 1 lần lúc khởi động** (`worker.js:31-34`) → không có cơ chế reload tự động. (`GLITCHTIP_GUIDE.md:258` nói ngược lại — tài liệu đó sai.)
 > ⚠️ **Hook `.claude/hooks/pre-tool-use.js` hiện KHÔNG có hiệu lực.** Hook chỉ chạy khi được đăng ký trong `.claude/settings.json`, mà repo worker **chưa có** file này. Tức là bảo vệ chặn `rm -rf` / `.env` / `worker.js` **đang tắt**. Muốn bật, tạo `.claude/settings.json`:
-> ```json
-> {
->   "hooks": {
->     "PreToolUse": [
->       { "matcher": "*", "hooks": [{ "type": "command", "command": "node .claude/hooks/pre-tool-use.js" }] }
->     ]
->   }
-> }
-> ```
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node .claude/hooks/pre-tool-use.js" }] }
+    ]
+  }
+}
+```
+
 > Lưu ý: hook chặn theo **mẫu chuỗi** trong argv + JSON của tool → cũng chặn nhầm khi AI đọc/ghi file có tên chứa `.env` (vd `.env.example`).
 
 ### L.5. Worker đang làm gì mỗi vòng 15s
 
-1. Với mỗi project trong `projects.json` → gọi Jira JQL (`worker.js:636`):
-   ```
-   project = <KEY> AND issuetype = Bug
-     AND status IN ("To Do", "Selected for Development", "Backlog")
-     AND (labels = "auto-fix" OR summary ~ "AUTO-BUG")
-     AND labels != "auto-fix-processing" AND labels != "auto-fix-done" AND labels != "auto-fix-failed"
-   ```
-   → lấy **tối đa 1 ticket / project / vòng**.
+**JQL mà worker dùng** (`worker.js:636`):
+
+```
+project = <KEY> AND issuetype = Bug
+  AND status IN ("To Do", "Selected for Development", "Backlog")
+  AND (labels = "auto-fix" OR summary ~ "AUTO-BUG")
+  AND labels != "auto-fix-processing" AND labels != "auto-fix-done" AND labels != "auto-fix-failed"
+```
+
+Các bước mỗi vòng 15 giây:
+
+1. Với mỗi project trong `projects.json` → gọi JQL trên → lấy **tối đa 1 ticket / project / vòng**.
 2. Gắn nhãn `auto-fix-processing` (khoá atomics).
 3. Đọc nhãn `service:*` → suy ra thư mục service qua `services.json`.
 4. Tạo git worktree `.worktrees/hotfix/<ISSUE_KEY>` từ `origin/<dev>` → copy `CLAUDE.md` vào → chạy Claude 2 vòng:
@@ -863,15 +874,20 @@ taskkill /F /FI "WINDOWTITLE eq Jira-AutoFix-Worker*" /T
 7. Gửi Telegram kèm nút **🔀 Merge PR** / **⏳ Lưu vào hàng đợi** + link PR; ghi vào `pending-prs.json`; comment lên Jira.
 8. Gỡ nhãn `auto-fix-processing`, thêm `auto-fix-done` (thành công) hoặc `auto-fix-failed` (lỗi).
 
-> ⚠️ **Hai giới hạn thực tế cần biết trước khi vận hành:**
+> ⚠️ **Ba giới hạn thực tế cần biết trước khi vận hành:**
 >
-> **(a) Worker KHÔNG gửi Telegram khi job fail.** `processBugWrapper` (`worker.js:681-686`) chỉ gắn nhãn `auto-fix-failed` + comment trên Jira. **Không** có tin nhắn Telegram báo lỗi/timeout. Muốn biết job fail → xem nhãn trên Jira hoặc log terminal, **đừng chờ tin nhắn Telegram**.
+> **(a) Worker KHÔNG gửi Telegram khi job fail.**
+> `processBugWrapper` (`worker.js:681-686`) chỉ gắn nhãn `auto-fix-failed` + comment trên Jira. **Không** có tin nhắn Telegram báo lỗi/timeout. Muốn biết job fail → xem nhãn trên Jira hoặc log terminal, **đừng chờ tin nhắn Telegram**.
 >
-> **(b) Bước kiểm tra "repro phải có evidence" luôn pass.** Worker tự tạo sẵn `evidence/<KEY>/before/<KEY>_error.txt` từ Jira description **trước** khi gọi Claude (`worker.js:842-844`), rồi kiểm tra chính thư mục đó khác rỗng (`worker.js:856-859`) → luôn đạt. Đây là **known gap**, không phải cơ chế chặn repro. Lệnh thực sự có tác dụng là dừng khi AI in ra `[AI_STOP] REPRO_FAILED` (`worker.js:851-854`).
+> **(b) Bước kiểm tra "repro phải có evidence" luôn pass.**
+> Worker tự tạo sẵn `evidence/<KEY>/before/<KEY>_error.txt` từ Jira description **trước** khi gọi Claude (`worker.js:842-844`), rồi kiểm tra chính thư mục đó khác rỗng (`worker.js:856-859`) → luôn đạt.
+> Đây là **known gap**, không phải cơ chế chặn repro. Lệnh thực sự có tác dụng là dừng khi AI in ra `[AI_STOP] REPRO_FAILED` (`worker.js:851-854`).
 >
-> **(c) `evidence/<KEY>/after/` luôn rỗng.** Worker chỉ gọi `sendEvidenceToTelegram(...,'before',...)` một lần (`worker.js:861`). Không có "Alert 2: gửi evidence sau khi fix" như mô tả trong `README.md` — đó là tài liệu cũ, không phải hành vi hiện tại.
-
-> ⚠️ **Jira Description KHÔNG được truyền cho Claude.** Prompt chỉ chứa `summary` (`worker.js:849`); description chỉ được ghi ra file `<KEY>_error.txt` ở thư mục evidence của worker (ngoài worktree → AI không đọc được).
+> **(c) `evidence/<KEY>/after/` luôn rỗng.**
+> Worker chỉ gọi `sendEvidenceToTelegram(...,'before',...)` một lần (`worker.js:861`). Không có "Alert 2: gửi evidence sau khi fix" như mô tả trong `README.md` — đó là tài liệu cũ, không phải hành vi hiện tại.
+>
+> ⚠️ **Jira Description KHÔNG được truyền cho Claude.**
+> Prompt chỉ chứa `summary` (`worker.js:849`); description chỉ được ghi ra file `<KEY>_error.txt` ở thư mục evidence của worker (ngoài worktree → AI không đọc được).
 > → **Đặt toàn bộ thông tin quan trọng vào SUMMARY của ticket**: endpoint bị lỗi, stack trace, service, URL. Không dựa vào Description.
 
 ---
@@ -890,7 +906,7 @@ Trong Jira, tạo issue:
 > ⚠️ **Phải tạo ticket MỚI.** Ticket cũ `SHOP-1`/`SHOP-2` đã mang nhãn `auto-fix-done` / `auto-fix-failed` → JQL loại trừ → worker **bỏ qua**. Nếu muốn chạy lại ticket cũ thì phải **xoá 3 nhãn** `auto-fix-processing`, `auto-fix-done`, `auto-fix-failed`.
 > ⚠️ **Tên trạng thái phải khớp chính xác.** JQL lọc `status IN ("To Do", "Selected for Development", "Backlog")`. Workflow SHOP/CMS hiện có `Backlog`, `Selected for Development`, `In Progress`, `Done` — **không có `To Do`**. Nếu ticket nằm ở `In Progress`/`Done` → worker không thấy. Chuyển về `Backlog` trước khi test.
 >
-> 💡 Nếu "Tìm thấy 0 bug" mà bạn thấy rõ ticket trên UI → chạy lệnh kiểm tra JQL ở Phụ lục D mục D.4 để xem chính xác nguyên nhân (thiếu label? sai status? thiếu issuetype Bug?).
+> 💡 Nếu "Tìm thấy 0 bug" mà bạn thấy rõ ticket trên UI → chạy lệnh kiểm tra JQL ở **Phụ lục D, mục D.19** để xem chính xác nguyên nhân (thiếu label? sai status? thiếu issuetype Bug?).
 
 ### M.2. Theo dõi
 
@@ -967,7 +983,7 @@ Cơ chế khớp (`worker.js:765`): `s.name === targetService || s.path === targ
 | Triệu chứng trong log | Nguyên nhân | Cách xử lý |
 |---|---|---|
 | `⚠️ Thiếu cấu hình Jira...` | Thiếu `JIRA_DOMAIN/EMAIL/TOKEN` trong `.env` | Chạy lại bằng `node --env-file=.env worker.js` (không dùng `node worker.js`) |
-| `[+] Tìm thấy 0 bug cho dự án SHOP` mãi | Sai `projectKey` trong `projects.json`, hoặc ticket thiếu nhãn `auto-fix`, hoặc sai trạng thái | Chạy lệnh kiểm tra JQL ở Phụ lục D mục D.4; sửa label/status |
+| `[+] Tìm thấy 0 bug cho dự án SHOP` mãi | Sai `projectKey` trong `projects.json`, hoặc ticket thiếu nhãn `auto-fix`, hoặc sai trạng thái | Chạy lệnh kiểm tra JQL ở **Phụ lục D, mục D.19**; sửa label/status |
 | `[Fail-Safe Abort] Ticket ... không có nhãn 'service:*'` | Ticket thiếu nhãn `service:api`/`service:web` | Thêm nhãn trong Jira |
 | `[Fail-Safe Abort] Thư mục service '...' không tồn tại` | Chưa clone repo service (Bước 2) | Clone đúng path trong `services.json` |
 | `[Fail-Safe Abort] Service '...' thiếu gitRepo hoặc cấu hình branches` | `services.json` thiếu trường | Bổ sung `gitRepo`, `branches.dev`, `branches.prod` |
@@ -991,7 +1007,7 @@ Cơ chế khớp (`worker.js:765`): `s.name === targetService || s.path === targ
 | D.1 | `worker.js` **không** đọc `.env`; chạy `node worker.js` sẽ không có biến môi trường | Không có `require('dotenv')`; `start-worker.bat:21` dùng `node --env-file=.env` | Luôn dùng `start-worker.bat` |
 | D.2 | `projects.json` và `services.json` được đọc theo **CWD**, không theo `__dirname` | `worker.js:32` (`readFileSync('projects.json')`), `worker.js:752` | Luôn `cd` vào root repo trước khi chạy |
 | D.3 | `evidence.js` ghi vào `process.cwd()/evidence` | `evidence.js:6` | Chạy worker ở root repo |
-| D.4 | Kiểm tra JQL thủ công (không cần chạy worker) | xem lệnh bên dưới | Dùng khi debug "0 bug" |
+| D.4 | Kiểm tra JQL thủ công (không cần chạy worker) | Script `jql-check.js` ở **mục D.19** | Dùng khi debug "0 bug" |
 | D.5 | `shop-web` không có script `test` | `package.json` scripts = `dev`, `build` | Dùng `npm run build` |
 | D.6 | `shop-api` không có actuator → không có `/actuator/health` | `pom.xml` không có `spring-boot-starter-actuator` | Health-check bằng endpoint thật hoặc check port |
 | D.7 | Trên Windows, `./mvnw` không chạy; dùng `mvnw.cmd` hoặc `mvn` | `./mvnw.cmd` → *"is not recognized"*; `cmd /c mvnw.cmd` → OK | Sửa `CLAUDE.md` ghi rõ `mvnw.cmd -B clean test` |
@@ -1005,13 +1021,45 @@ Cơ chế khớp (`worker.js:765`): `s.name === targetService || s.path === targ
 | D.15 | Bước kiểm tra "repro phải có evidence" **luôn pass** (worker tự tạo file evidence trước rồi kiểm tra chính nó) | `worker.js:842-844` tạo file → `:856-859` kiểm tra cùng thư mục đó | Coi là known gap; chỉ `[AI_STOP] REPRO_FAILED` mới thực sự dừng (`:851-854`) |
 | D.16 | Jira **description** không được truyền cho Claude — chỉ `summary` | `worker.js:849` (`Bug: ${summary}`); description chỉ nằm trong file evidence ngoài worktree | Nhét toàn bộ thông tin lỗi vào **Summary** của ticket |
 | D.17 | Worker **có** tự commit khi AI quên commit, với message `fix(auto): catch uncommitted changes after ...` — **không** theo convention `fix(api):`/`fix(web):` | `worker.js:598` (README mục B nói "worker không tự commit" — sai) | Sau khi có PR, kiểm tra message commit; sửa tay nếu sai convention |
-| D.18 | `webhook_bridge.js` suy ra `service:*` từ slug project GlitchTip: chứa `-fe` → `service:web`, chứa `-be` → `service:api`, **mặc định `service:api`** | `webhook_bridge.js:24-30` | Đặt tên project GlitchTip theo slug rõ ràng (VD `SHOP-be`, `SHOP-fe`). Slug kiểu `project-1-be-1` vẫn ra `api` — nhưng frontend có `-fe` mới ra `web`. Nên **dùng Jira Automation** (nhãn cứng) thay vì bridge |
+| D.18 | `webhook_bridge.js` suy ra `service:*` từ slug project GlitchTip: `-fe` → web, `-be` → api, **mặc định `service:api`** | `webhook_bridge.js:24-30` | Đặt tên project rõ ràng (VD `SHOP-be`, `SHOP-fe`). Nên **dùng Jira Automation** (nhãn cứng) thay vì bridge |
 
-### D.4 — Lệnh kiểm tra JQL (dán vào CMD, đổi `<PROJECT_KEY>`)
+### D.19 — Kiểm tra JQL (khi worker báo "Tìm thấy 0 bug")
+
+Tạo file `jql-check.js` ở thư mục gốc repo worker:
+
+```js
+const PROJECT_KEY = 'SHOP';   // đổi thành CMS nếu cần
+
+const auth = 'Basic ' + Buffer.from(
+  process.env.JIRA_EMAIL + ':' + process.env.JIRA_TOKEN
+).toString('base64');
+
+const jql = [
+  `project = ${PROJECT_KEY}`,
+  'issuetype = Bug',
+  'status IN ("To Do", "Selected for Development", "Backlog")',
+  '(labels = "auto-fix" OR summary ~ "AUTO-BUG")',
+  'labels != "auto-fix-processing"',
+  'labels != "auto-fix-done"',
+  'labels != "auto-fix-failed"',
+].join(' AND ');
+
+const url = `https://${process.env.JIRA_DOMAIN}/rest/api/3/search/jql`
+  + `?jql=${encodeURIComponent(jql)}`
+  + '&fields=summary,labels,status';
+
+fetch(url, { headers: { Authorization: auth } })
+  .then(r => r.json())
+  .then(j => console.log(JSON.stringify(j, null, 1)));
+```
+
+Chạy:
 
 ```cmd
-node --env-file=.env -e "const a='Basic '+Buffer.from(process.env.JIRA_EMAIL+':'+process.env.JIRA_TOKEN).toString('base64');const jql='project = SHOP AND issuetype = Bug AND status IN (\"To Do\", \"Selected for Development\", \"Backlog\") AND (labels = \"auto-fix\" OR summary ~ \"AUTO-BUG\") AND labels != \"auto-fix-processing\" AND labels != \"auto-fix-done\" AND labels != \"auto-fix-failed\"';fetch('https://'+process.env.JIRA_DOMAIN+'/rest/api/3/search/jql?jql='+encodeURIComponent(jql)+'&fields=summary,labels,status',{headers:{Authorization:a}}).then(r=>r.json()).then(j=>console.log(JSON.stringify(j,null,1)))"
+node --env-file=.env jql-check.js
 ```
+
+Nếu `issues` rỗng → xem lại: thiếu nhãn `auto-fix`/`service:*`, sai trạng thái, hoặc ticket đã có nhãn `auto-fix-done`/`-failed` (xem D.15).
 
 ---
 
@@ -1059,17 +1107,15 @@ Cũng nên sửa tên project trong Services Map cho khớp `projects.json` (`SH
 2. Gỡ DSN khỏi code:
    - `services/shop-web/src/main.jsx`: xoá phần `|| "http://...@...:8000/2"` → chỉ còn `import.meta.env.VITE_SENTRY_DSN`.
    - `services-2/cms-web/src/main.jsx`: tương tự.
-   - `services/shop-api/src/main/resources/application.properties` và `services-2/cms-api/...`: chuyển sang biến môi trường:
-     ```properties
-     sentry.dsn=${SENTRY_DSN}
-     ```
-     và truyền khi chạy: `SENTRY_DSN=<DSN> java -jar ...`
+   - `services/shop-api/src/main/resources/application.properties` và `services-2/cms-api/...`: chuyển sang biến môi trường, dòng `sentry.dsn=${SENTRY_DSN}`, và truyền khi chạy: `SENTRY_DSN=<DSN> java -jar ...`
 3. Gỡ `.env` khỏi tracking của repo `shop-web`:
-   ```cmd
-   git -C services\shop-web rm --cached .env
-   echo .env >> services\shop-web\.gitignore
-   git -C services\shop-web commit -m "chore: untrack .env (contains Sentry DSN)"
-   ```
+
+```
+git -C services\shop-web rm --cached .env
+echo .env >> services\shop-web\.gitignore
+git -C services\shop-web commit -m "chore: untrack .env (contains Sentry DSN)"
+```
+
 4. Nếu **tài liệu này** (hoặc `.env`) đã bị chia sẻ ra ngoài → **rotate ngay**:
    - Jira: <https://id.atlassian.com/manage-profile/security/api-tokens> → Revoke token cũ → tạo token mới → cập nhật `.env`.
    - GitHub: <https://github.com/settings/tokens> → Revoke PAT cũ → tạo PAT mới → cập nhật `.env` **và** URL remote của 4 repo.
