@@ -23,25 +23,25 @@ Bốn hệ thống phải cấu hình: **GlitchTip → Jira → Telegram → Wor
 
 | Phần | Nội dung |
 |---|---|
-| [A](#a--bảng-giá-trị-sẵn-có-readymade) | Bảng giá trị sẵn có (readymade) |
-| [B](#b--preflight--kiểm-tra-môi-trường-trước-khi-cài) | Preflight — kiểm tra môi trường (**B.0 = Bước 0 bắt buộc: `claude -p "ping"`**) |
-| [C](#c--bước-1-clone-repo-worker) | Bước 1: Clone repo worker |
-| [D](#d--bước-2-clone-4-repo-service--bắt-buộc) | Bước 2: Clone 4 repo service (bắt buộc) |
-| [E](#e--bước-3-tạo-file-env) | Bước 3: Tạo file `.env` |
-| [F](#f--bước-4-cấu-hình-projectsjson--servicesjson) | Bước 4: Cấu hình `projects.json` + `services.json` |
-| [G](#g--bước-5-setup-telegram-a--z) | Bước 5: Setup Telegram (A→Z) |
-| [H](#h--bước-6-setup-glitchtip-docker) | Bước 6: Setup GlitchTip (Docker) |
-| [I](#i--bước-7-gắn-sentry-dsn-vào-4-service) | Bước 7: Gắn Sentry DSN vào 4 service |
-| [J](#j--bước-8-setup-jira-automation-rule) | Bước 8: Setup Jira (project + Automation Rule) |
-| [K](#k--bước-9-cấu-hình-alert-webhook-glitchtip--jira) | Bước 9: Nối Alert Webhook GlitchTip → Jira |
-| [L](#l--bước-10-chạy-worker) | Bước 10: Chạy worker |
-| [M](#m--bước-11-kiểm-thử-end-to-end) | Bước 11: Kiểm thử end-to-end |
-| [N](#n--phụ-lục-a--bảng-đầy-đủ-biến-môi-trường) | Phụ lục A: Bảng biến môi trường |
-| [O](#o--phụ-lục-b--bản-đồ-ticket--service--repo) | Phụ lục B: Bản đồ ticket → service → repo |
-| [P](#p--phụ-lục-c--xử-lý-sự-cố) | Phụ lục C: Xử lý sự cố |
-| [Q](#q--phụ-lục-d--các-gotcha-đã-kiểm-chứng) | Phụ lục D: Gotcha đã kiểm chứng |
-| [R](#r--phụ-lục-e--sửa-claudemd-cho-khớp-path-thật) | Phụ lục E: Sửa `CLAUDE.md` cho khớp path |
-| [S](#s--phụ-lục-f--bảo-mật--rotate-secret) | Phụ lục F: Bảo mật & rotate secret |
+| [A](#a-bảng-giá-trị-sẵn-có-readymade) | Bảng giá trị sẵn có (readymade) |
+| [B](#b-preflight--kiểm-tra-môi-trường-trước-khi-cài) | Preflight — kiểm tra môi trường (**B.0 = Bước 0 bắt buộc: `claude -p "ping"`**) |
+| [C](#c-bước-1--clone-repo-worker) | Bước 1: Clone repo worker |
+| [D](#d-bước-2--clone-4-repo-service-bắt-buộc) | Bước 2: Clone 4 repo service (bắt buộc) |
+| [E](#e-bước-3--tạo-file-env) | Bước 3: Tạo file `.env` |
+| [F](#f-bước-4--cấu-hình-projectsjson--servicesjson) | Bước 4: Cấu hình `projects.json` + `services.json` |
+| [G](#g-bước-5--setup-telegram-az) | Bước 5: Setup Telegram (A→Z) |
+| [H](#h-bước-6--setup-glitchtip-docker) | Bước 6: Setup GlitchTip (Docker) |
+| [I](#i-bước-7--gắn-sentry-dsn-vào-4-service) | Bước 7: Gắn Sentry DSN vào 4 service |
+| [J](#j-bước-8--setup-jira-project--automation-rule) | Bước 8: Setup Jira (project + Automation Rule) |
+| [K](#k-bước-9--nối-alert-webhook-glitchtip--jira) | Bước 9: Nối Alert Webhook GlitchTip → Jira |
+| [L](#l-bước-10--chạy-worker) | Bước 10: Chạy worker |
+| [M](#m-bước-11--kiểm-thử-end-to-end) | Bước 11: Kiểm thử end-to-end |
+| [N](#n-phụ-lục-a--bảng-đầy-đủ-biến-môi-trường) | Phụ lục A: Bảng biến môi trường |
+| [O](#o-phụ-lục-b--bản-đồ-ticket--service--repo) | Phụ lục B: Bản đồ ticket → service → repo |
+| [P](#p-phụ-lục-c--xử-lý-sự-cố) | Phụ lục C: Xử lý sự cố |
+| [Q](#q-phụ-lục-d--gotcha-đã-kiểm-chứng) | Phụ lục D: Gotcha đã kiểm chứng |
+| [R](#r-phụ-lục-e--sửa-claudemd-cho-khớp-path-thật) | Phụ lục E: Sửa `CLAUDE.md` cho khớp path |
+| [S](#s-phụ-lục-f--bảo-mật--rotate-secret) | Phụ lục F: Bảo mật & rotate secret |
 
 ---
 
