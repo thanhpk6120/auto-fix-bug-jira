@@ -39,6 +39,8 @@ Hệ thống điều phối tự động hoá phát hiện, phân tích, sửa l
 - `.claude/hooks/pre-tool-use.js`: Hook chặn các lệnh shell nguy hiểm (`rm -rf`, can thiệp `.env`).
 - `.env`: Cấu hình môi trường riêng biệt per-project.
 - `services/`: Nơi chứa toàn bộ source code của các service/sub-project. Xem chi tiết tại [services/README.md](services/README.md).
+- `SETUP_GUIDE.md`: Hướng dẫn đầy đủ, step-by-step để cài đặt & chạy hệ thống (GlitchTip → Jira → Telegram → Worker). Xem bản HTML tại [SETUP_GUIDE.html](SETUP_GUIDE.html).
+- `tools/build-doc-html.py`: Script sinh `SETUP_GUIDE.html` từ `SETUP_GUIDE.md` (tự chứa, không cần mạng). Chạy: `python tools/build-doc-html.py`.
 
 ---
 > 💡 **GlitchTip Integration:** Hệ thống sử dụng GlitchTip làm trung tâm phân tích lỗi, Sentry SDK trên App, và Jira làm Message Bus điều phối ticket. Xem chi tiết tại [GLITCHTIP_GUIDE.md](GLITCHTIP_GUIDE.md).

@@ -1146,3 +1146,24 @@ git -C services\shop-web commit -m "chore: untrack .env (contains Sentry DSN)"
 - [ ] M Test E2E: tạo ticket thử → dấu hiệu repro/fix/PR → duyệt Merge trên Telegram
 - [ ] R Sửa `CLAUDE.md` path (khuyến nghị mạnh)
 - [ ] S Dọn DSN/token khỏi code + rotate nếu đã lộ
+
+---
+
+## Phụ lục G — Bản HTML để xem offline / in
+
+Tài liệu này còn có bản HTML tự chứa (CSS + syntax highlight nhúng thẳng, **không cần mạng**):
+
+- `SETUP_GUIDE.html` — mở bằng trình duyệt, có sidebar mục lục bám theo heading đang xem, tự bật/tắt dark mode theo hệ điều hành, hỗ trợ in ra PDF.
+
+Sinh lại sau khi sửa `SETUP_GUIDE.md`:
+
+```cmd
+pip install markdown-it-py pygments
+python tools\build-doc-html.py
+```
+
+Script tự đọc `SETUP_GUIDE.md`, tạo `SETUP_GUIDE.html`, và có thể dùng lại cho file markdown khác:
+
+```cmd
+python tools\build-doc-html.py duong-dan\file.md duong-dan\file.html
+```

@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SETUP_GUIDE — Hướng dẫn cài đặt &amp; chạy Auto-Fix Worker (Level 3)</title>
+<style>
+
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --surface: #f6f8fa;
+  --accent: #0969da;
+  --code-bg: #f6f8fa;
+  --mark-bg: #fff8c5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --border: #3d444d;
+    --surface: #151b23;
+    --accent: #4493f8;
+    --code-bg: #151b23;
+    --mark-bg: #3f2e00;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+    Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+}
+.wrap { max-width: 1400px; margin: 0 auto; padding: 0 24px; }
+
+/* ---- header ---- */
+header.page {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 20px 0;
+  margin-bottom: 28px;
+}
+header.page .wrap { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+header.page h1 { font-size: 20px; margin: 0; border: 0; padding: 0; }
+header.page .meta { color: var(--muted); font-size: 13px; }
+header.page .meta code { background: transparent; padding: 0; }
+
+/* ---- layout ---- */
+.layout { display: flex; gap: 40px; align-items: flex-start; }
+main { flex: 1 1 auto; min-width: 0; }
+
+/* ---- sidebar toc ---- */
+nav.toc {
+  position: sticky;
+  top: 20px;
+  flex: 0 0 300px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 14px;
+  background: var(--surface);
+  font-size: 13.5px;
+}
+nav.toc > p.toc-title {
+  margin: 0 0 10px;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc ol ol { margin: 0 0 0 14px; padding: 0; border-left: 1px solid var(--border); }
+nav.toc li { margin: 3px 0; }
+nav.toc a {
+  color: var(--fg);
+  text-decoration: none;
+  display: block;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+nav.toc a:hover { background: var(--mark-bg); color: var(--fg); }
+nav.toc > ol > li > a { font-weight: 600; }
+nav.toc a.active { background: var(--mark-bg); font-weight: 600; }
+
+/* ---- content ---- */
+main h1, main h2, main h3, main h4 { line-height: 1.3; margin: 1.6em 0 .6em; }
+main h1 { font-size: 30px; padding-bottom: .3em; border-bottom: 1px solid var(--border); }
+main h2 { font-size: 24px; padding-bottom: .3em; border-bottom: 1px solid var(--border); }
+main h3 { font-size: 20px; }
+main h4 { font-size: 17px; }
+main h1:first-child { margin-top: 0; }
+.anchor {
+  float: left; margin-left: -22px; width: 22px;
+  color: var(--muted); text-decoration: none; opacity: 0;
+  font-weight: 400;
+}
+h1:hover > .anchor, h2:hover > .anchor, h3:hover > .anchor,
+h4:hover > .anchor { opacity: 1; }
+main p { margin: 0 0 1em; }
+main ul, main ol { margin: 0 0 1em; padding-left: 2em; }
+main li > p { margin: .3em 0; }
+main hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+main a { color: var(--accent); text-decoration: none; }
+main a:hover { text-decoration: underline; }
+main blockquote {
+  margin: 0 0 1em; padding: 0 1em;
+  border-left: .25em solid var(--border);
+  color: var(--muted);
+}
+main blockquote > p:last-child { margin-bottom: 0; }
+main code {
+  background: var(--code-bg);
+  padding: .2em .4em;
+  border-radius: 6px;
+  font-size: 85%;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+main pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 16px;
+  overflow: auto;
+  margin: 0 0 1em;
+  line-height: 1.45;
+}
+main pre code { background: transparent; padding: 0; font-size: 13px; }
+main img { max-width: 100%; }
+kbd {
+  border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 5px; font-size: 12px;
+}
+
+/* ---- tables: bọc để scroll ngang, không vỡ layout ---- */
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 0 1em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+main table { border-collapse: collapse; width: 100%; font-size: 14px; }
+main th, main td {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+main th { background: var(--surface); font-weight: 600; white-space: nowrap; }
+main tbody tr:last-child td { border-bottom: 0; }
+main tbody tr:nth-child(2n) { background: color-mix(in srgb, var(--surface) 45%, transparent); }
+main td code { white-space: nowrap; }
+main td:first-child { min-width: 0; }
+
+/* ---- syntax highlight (pygments) ---- */
+.highlight { background: var(--code-bg); }
+.highlight pre { margin: 0; }
+.highlight .hll { background: var(--mark-bg); }
+.highlight .c, .highlight .c1, .highlight .cm, .highlight .cs, .highlight .cd {
+  color: #6a737d; font-style: italic;
+}
+.highlight .k, .highlight .kc, .highlight .kd, .highlight .kn, .highlight .kp,
+.highlight .kr, .highlight .kt { color: #cf222e; }
+.highlight .s, .highlight .s1, .highlight .s2, .highlight .sb, .highlight .sc,
+.highlight .sd, .highlight .se, .highlight .sh, .highlight .si, .highlight .sx,
+.highlight .sr, .highlight .ss { color: #0a3069; }
+.highlight .m, .highlight .mf, .highlight .mh, .highlight .mi, .highlight .mo,
+.highlight .il { color: #0550ae; }
+.highlight .n, .highlight .na, .highlight .nb, .highlight .nc, .highlight .nd,
+.highlight .ne, .highlight .nf, .highlight .ni, .highlight .nl, .highlight .nn,
+.highlight .no, .highlight .nt, .highlight .nv { color: var(--fg); }
+.highlight .o, .highlight .ow, .highlight .p { color: var(--fg); }
+.highlight .err { color: #cf222e; }
+@media (prefers-color-scheme: dark) {
+  .highlight .c, .highlight .c1, .highlight .cm, .highlight .cs, .highlight .cd { color: #8b949e; }
+  .highlight .k, .highlight .kc, .highlight .kd, .highlight .kn, .highlight .kp,
+  .highlight .kr, .highlight .kt { color: #ff7b72; }
+  .highlight .s, .highlight .s1, .highlight .s2, .highlight .sb, .highlight .sc,
+  .highlight .sd, .highlight .se, .highlight .sh, .highlight .si, .highlight .sx,
+  .highlight .sr, .highlight .ss { color: #a5d6ff; }
+  .highlight .m, .highlight .mf, .highlight .mh, .highlight .mi, .highlight .mo,
+  .highlight .il { color: #79c0ff; }
+  .highlight .n, .highlight .na, .highlight .nb, .highlight .nc, .highlight .nd,
+  .highlight .ne, .highlight .nf, .highlight .ni, .highlight .nl, .highlight .nn,
+  .highlight .no, .highlight .nt, .highlight .nv { color: #e6edf3; }
+  .highlight .o, .highlight .ow, .highlight .p { color: #e6edf3; }
+  .highlight .err { color: #ff7b72; }
+}
+
+/* ---- footer ---- */
+footer.page {
+  margin-top: 48px; padding: 20px 0 40px;
+  border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 13px;
+}
+
+@media (max-width: 1000px) {
+  .layout { flex-direction: column; gap: 20px; }
+  nav.toc { position: static; flex: 1 1 auto; width: 100%; max-height: none; }
+  .anchor { display: none; }
+}
+@media print {
+  nav.toc, header.page, footer.page { display: none; }
+  body { font-size: 11pt; }
+  main pre { white-space: pre-wrap; word-break: break-all; }
+  .table-wrap { overflow: visible; }
+}
+
+</style>
+</head>
+<body>
+<header class="page">
+  <div class="wrap">
+    <h1>SETUP_GUIDE — Hướng dẫn cài đặt &amp; chạy Auto-Fix Worker (Level 3)</h1>
+    <span class="meta">Sinh tu <code>SETUP_GUIDE.md</code> — <code>python tools/build-doc-html.py</code></span>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="layout">
+<nav class="toc" aria-label="Muc luc"><p class="toc-title">Muc luc</p><ol><li><a href="#mục-lục">Mục lục</a></li><li><a href="#a-bảng-giá-trị-sẵn-có-readymade">A. Bảng giá trị sẵn có (readymade)</a><ol><li><a href="#a1-danh-tính-dự-án">A.1. Danh tính dự án</a></li><li><a href="#a2-bản-đồ-2-dự-án-jira--4-service-git--port">A.2. Bản đồ 2 dự án (Jira) ↔ 4 service (Git) ↔ port</a></li><li><a href="#a3-port-trong-hệ-thống">A.3. Port trong hệ thống</a></li></ol></li><li><a href="#b-preflight--kiểm-tra-môi-trường-trước-khi-cài">B. Preflight — kiểm tra môi trường trước khi cài</a><ol><li><a href="#b0--bước-0-bắt-buộc-claude-code-cli-phải-trả-lời-được">B.0 — BƯỚC 0 (BẮT BUỘC): Claude Code CLI phải trả lời được</a></li><li><a href="#b1-nodejs--206-bắt-buộc-có---env-file">B.1. Node.js ≥ 20.6 (bắt buộc có `--env-file`)</a></li><li><a href="#b2-git">B.2. Git</a></li><li><a href="#b3-claude-code-cli--xác-nhận-lần-2">B.3. Claude Code CLI — xác nhận lần 2</a></li><li><a href="#b4-docker-chỉ-cần-nếu-tự-dựng-glitchtip">B.4. Docker (chỉ cần nếu tự dựng GlitchTip)</a></li><li><a href="#b5-java--maven-cho-service-java">B.5. Java + Maven (cho service Java)</a></li></ol></li><li><a href="#c-bước-1--clone-repo-worker">C. Bước 1 — Clone repo worker</a></li><li><a href="#d-bước-2--clone-4-repo-service-bắt-buộc">D. Bước 2 — Clone 4 repo service (BẮT BUỘC)</a><ol><li><a href="#d1-clone-đúng-path-theo-servicesjson">D.1. Clone đúng path theo `services.json`</a></li><li><a href="#d2-tạo-nhánh-staging-nhánh-target">D.2. Tạo nhánh `staging` (nhánh `target`)</a></li><li><a href="#d3-cấu-hình-remote-có-token-worker-tự-set-url-nhưng-set-sẵn-cho-chắc">D.3. Cấu hình remote có token (worker tự set-url, nhưng set sẵn cho chắc)</a></li><li><a href="#d4-xác-minh-đủ-4-repo--đúng-branch">D.4. Xác minh đủ 4 repo + đúng branch</a></li></ol></li><li><a href="#e-bước-3--tạo-file-env">E. Bước 3 — Tạo file `.env`</a><ol><li><a href="#e1-nội-dung-env-đầy-đủ-copy--điền">E.1. Nội dung `.env` đầy đủ (copy &amp; điền)</a></li><li><a href="#e2-lấy-từng-giá-trị-ở-đâu">E.2. Lấy từng giá trị ở đâu</a></li><li><a href="#e3-kiểm-tra-env-đã-nạp-đúng">E.3. Kiểm tra `.env` đã nạp đúng</a></li><li><a href="#e4-test-token-trước-khi-chạy-worker">E.4. Test token trước khi chạy worker</a></li></ol></li><li><a href="#f-bước-4--cấu-hình-projectsjson--servicesjson">F. Bước 4 — Cấu hình `projects.json` + `services.json`</a><ol><li><a href="#f1-projectsjson-ở-root-repo-worker">F.1. `projects.json` (ở root repo worker)</a></li><li><a href="#f2-servicesservicesjson">F.2. `services/services.json`</a></li><li><a href="#f3-services-2servicesjson">F.3. `services-2/services.json`</a></li><li><a href="#f4-kiểm-tra-nhanh">F.4. Kiểm tra nhanh</a></li></ol></li><li><a href="#g-bước-5--setup-telegram-az">G. Bước 5 — Setup Telegram (A→Z)</a><ol><li><a href="#-trạng-thái-hiện-tại-telegram-đang-tắt">⚠️ Trạng thái hiện tại: Telegram **đang TẮT**</a></li><li><a href="#4-điểm-dễ-sai">4 điểm dễ sai</a></li><li><a href="#g1-tạo-bot">G.1. Tạo bot</a></li><li><a href="#g2-tạo-nhóm-on-call-khuyến-nghị-và-lấy-chat_id">G.2. Tạo nhóm On-call (khuyến nghị) và lấy CHAT_ID</a></li><li><a href="#g3-lấy-user-id-của-người-được-phép-duyệt">G.3. Lấy USER ID của người được phép duyệt</a></li><li><a href="#g4-kiểm-tra-bot-sống-2-lệnh">G.4. Kiểm tra bot sống (2 lệnh)</a></li><li><a href="#g5-cấu-hình-env-hoàn-tất">G.5. Cấu hình `.env` hoàn tất</a></li><li><a href="#g6-tuỳ-chọn-bot-cần-quyền-đọc-message-trong-nhóm">G.6. (Tuỳ chọn) Bot cần quyền đọc message trong nhóm</a></li></ol></li><li><a href="#h-bước-6--setup-glitchtip-docker">H. Bước 6 — Setup GlitchTip (Docker)</a><ol><li><a href="#h1-chuẩn-bị-thư-mục--secret-key">H.1. Chuẩn bị thư mục + secret key</a></li><li><a href="#h2-tạo-docker-composeyml">H.2. Tạo `docker-compose.yml`</a></li><li><a href="#h3-migrate--khởi-động">H.3. Migrate + khởi động</a></li><li><a href="#h4-tạo-tài-khoản--project-lấy-dsn">H.4. Tạo tài khoản + project (lấy DSN)</a></li></ol></li><li><a href="#i-bước-7--gắn-sentry-dsn-vào-4-service">I. Bước 7 — Gắn Sentry DSN vào 4 service</a><ol><li><a href="#i1-backend-spring-boot-2-repo-api">I.1. Backend Spring Boot (2 repo `api`)</a></li><li><a href="#i2-frontend-react-2-repo-web">I.2. Frontend React (2 repo `web`)</a></li><li><a href="#i3-kiểm-tra-dsn-hoạt-động">I.3. Kiểm tra DSN hoạt động</a></li></ol></li><li><a href="#j-bước-8--setup-jira-project--automation-rule">J. Bước 8 — Setup Jira (project + Automation Rule)</a><ol><li><a href="#j1-project-jira">J.1. Project Jira</a></li><li><a href="#j2-tạo-automation-rule-nhận-webhook-từ-glitchtip">J.2. Tạo Automation Rule (nhận webhook từ GlitchTip)</a></li><li><a href="#j3-tuỳ-chọn-thay-jira-automation-bằng-webhook_bridgejs">J.3. (Tuỳ chọn) Thay Jira Automation bằng `webhook_bridge.js`</a></li></ol></li><li><a href="#k-bước-9--nối-alert-webhook-glitchtip--jira">K. Bước 9 — Nối Alert Webhook GlitchTip → Jira</a></li><li><a href="#l-bước-10--chạy-worker">L. Bước 10 — Chạy worker</a><ol><li><a href="#l1-kiểm-tra-lần-cuối-trước-khi-chạy">L.1. Kiểm tra lần cuối trước khi chạy</a></li><li><a href="#l2-chạy-bằng-script-có-sẵn-khuyến-nghị">L.2. Chạy bằng script có sẵn (khuyến nghị)</a></li><li><a href="#l3-log-khởi-động-mong-đợi">L.3. Log khởi động mong đợi</a></li><li><a href="#l4-restart--dừng-worker">L.4. Restart / dừng worker</a></li><li><a href="#l5-worker-đang-làm-gì-mỗi-vòng-15s">L.5. Worker đang làm gì mỗi vòng 15s</a></li></ol></li><li><a href="#m-bước-11--kiểm-thử-end-to-end">M. Bước 11 — Kiểm thử end-to-end</a><ol><li><a href="#m1-tạo-ticket-thử-nhanh-nhất-không-qua-glitchtip">M.1. Tạo ticket thử (nhanh nhất, không qua GlitchTip)</a></li><li><a href="#m2-theo-dõi">M.2. Theo dõi</a></li><li><a href="#m3-duyệt-merge-từ-telegram">M.3. Duyệt Merge từ Telegram</a></li><li><a href="#m4-test-đầy-đủ-qua-glitchtip">M.4. Test đầy đủ qua GlitchTip</a></li></ol></li><li><a href="#n-phụ-lục-a--bảng-đầy-đủ-biến-môi-trường">N. Phụ lục A — Bảng đầy đủ biến môi trường</a></li><li><a href="#o-phụ-lục-b--bản-đồ-ticket--service--repo">O. Phụ lục B — Bản đồ ticket → service → repo</a></li><li><a href="#p-phụ-lục-c--xử-lý-sự-cố">P. Phụ lục C — Xử lý sự cố</a></li><li><a href="#q-phụ-lục-d--gotcha-đã-kiểm-chứng">Q. Phụ lục D — Gotcha đã kiểm chứng</a><ol><li><a href="#d19--kiểm-tra-jql-khi-worker-báo-tìm-thấy-0-bug">D.19 — Kiểm tra JQL (khi worker báo &quot;Tìm thấy 0 bug&quot;)</a></li></ol></li><li><a href="#r-phụ-lục-e--sửa-claudemd-cho-khớp-path-thật">R. Phụ lục E — Sửa `CLAUDE.md` cho khớp path thật</a></li><li><a href="#s-phụ-lục-f--bảo-mật--rotate-secret">S. Phụ lục F — Bảo mật &amp; rotate secret</a><ol><li><a href="#s1-secret-đang-tồn-tại-trong-hệ-thống">S.1. Secret đang tồn tại trong hệ thống</a></li><li><a href="#s2-việc-cần-làm-khuyến-nghị">S.2. Việc cần làm (khuyến nghị)</a></li><li><a href="#s3-quy-tắc-chung">S.3. Quy tắc chung</a></li></ol></li><li><a href="#checklist-hoàn-tất">Checklist hoàn tất</a></li><li><a href="#phụ-lục-g--bản-html-để-xem-offline--in">Phụ lục G — Bản HTML để xem offline / in</a></li></ol></nav>
+<main>
+<h1 id="setup_guide--hướng-dẫn-cài-đặt--chạy-auto-fix-worker-level-3"><a class="anchor" href="#setup_guide--hướng-dẫn-cài-đặt--chạy-auto-fix-worker-level-3" aria-hidden="true">#</a>SETUP_GUIDE — Hướng dẫn cài đặt &amp; chạy Auto-Fix Worker (Level 3)</h1>
+<p>Tài liệu này là hướng dẫn <strong>đầy đủ, tuần tự, copy-paste được</strong> cho toàn bộ hệ thống:</p>
+<pre class="highlight"><code>[App FE/BE] --Sentry SDK--&gt; [GlitchTip] --Webhook--&gt; [Jira Automation Rule]
+      --&gt; [Jira Ticket [AUTO-BUG] + label auto-fix + label service:*]
+      --&gt; [worker.js (Singleton Master Worker)] --claude -p--&gt; [fix + test + commit]
+      --&gt; [git push hotfix/&lt;KEY&gt;] --&gt; [Pull Request] --&gt; [Telegram duyệt Merge]
+</code></pre>
+<p>Bốn hệ thống phải cấu hình: <strong>GlitchTip → Jira → Telegram → Worker (+ 4 service repo)</strong>.</p>
+<blockquote>
+<p><strong>Bắt buộc đọc trước:</strong></p>
+<ul>
+<li><strong>Bước 0 (B.0):</strong> <code>claude -p &quot;ping&quot;</code> <strong>phải trả lời được</strong> trước khi làm gì khác. Worker chạy headless qua Claude Code CLI — CLI hỏng thì mọi job auto-fix đều fail.</li>
+<li><code>worker.js</code> <strong>không tự đọc <code>.env</code></strong>. Phải chạy bằng <code>node --env-file=.env worker.js</code> (file <code>start-worker.bat</code> đã làm sẵn).</li>
+<li>4 thư mục source service <strong>đang bị <code>.gitignore</code> loại bỏ</strong> (<code>.gitignore:27-30</code>) → clone repo này về <strong>không có mã nguồn</strong>, phải clone 4 repo service thủ công (Bước 2).</li>
+<li>Mọi secret trong tài liệu này để dạng <code>&lt;PLACEHOLDER&gt;</code>. <strong>Không ghi token thật vào file hướng dẫn.</strong> Nếu file này bị chia sẻ ra ngoài, hãy rotate token (Phụ lục F).</li>
+</ul>
+</blockquote>
+<hr />
+<h2 id="mục-lục"><a class="anchor" href="#mục-lục" aria-hidden="true">#</a>Mục lục</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Phần</th>
+<th>Nội dung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#a-b%E1%BA%A3ng-gi%C3%A1-tr%E1%BB%8B-s%E1%BA%B5n-c%C3%B3-readymade">A</a></td>
+<td>Bảng giá trị sẵn có (readymade)</td>
+</tr>
+<tr>
+<td><a href="#b-preflight--ki%E1%BB%83m-tra-m%C3%B4i-tr%C6%B0%E1%BB%9Dng-tr%C6%B0%E1%BB%9Bc-khi-c%C3%A0i">B</a></td>
+<td>Preflight — kiểm tra môi trường (<strong>B.0 = Bước 0 bắt buộc: <code>claude -p &quot;ping&quot;</code></strong>)</td>
+</tr>
+<tr>
+<td><a href="#c-b%C6%B0%E1%BB%9Bc-1--clone-repo-worker">C</a></td>
+<td>Bước 1: Clone repo worker</td>
+</tr>
+<tr>
+<td><a href="#d-b%C6%B0%E1%BB%9Bc-2--clone-4-repo-service-b%E1%BA%AFt-bu%E1%BB%99c">D</a></td>
+<td>Bước 2: Clone 4 repo service (bắt buộc)</td>
+</tr>
+<tr>
+<td><a href="#e-b%C6%B0%E1%BB%9Bc-3--t%E1%BA%A1o-file-env">E</a></td>
+<td>Bước 3: Tạo file <code>.env</code></td>
+</tr>
+<tr>
+<td><a href="#f-b%C6%B0%E1%BB%9Bc-4--c%E1%BA%A5u-h%C3%ACnh-projectsjson--servicesjson">F</a></td>
+<td>Bước 4: Cấu hình <code>projects.json</code> + <code>services.json</code></td>
+</tr>
+<tr>
+<td><a href="#g-b%C6%B0%E1%BB%9Bc-5--setup-telegram-az">G</a></td>
+<td>Bước 5: Setup Telegram (A→Z)</td>
+</tr>
+<tr>
+<td><a href="#h-b%C6%B0%E1%BB%9Bc-6--setup-glitchtip-docker">H</a></td>
+<td>Bước 6: Setup GlitchTip (Docker)</td>
+</tr>
+<tr>
+<td><a href="#i-b%C6%B0%E1%BB%9Bc-7--g%E1%BA%AFn-sentry-dsn-v%C3%A0o-4-service">I</a></td>
+<td>Bước 7: Gắn Sentry DSN vào 4 service</td>
+</tr>
+<tr>
+<td><a href="#j-b%C6%B0%E1%BB%9Bc-8--setup-jira-project--automation-rule">J</a></td>
+<td>Bước 8: Setup Jira (project + Automation Rule)</td>
+</tr>
+<tr>
+<td><a href="#k-b%C6%B0%E1%BB%9Bc-9--n%E1%BB%91i-alert-webhook-glitchtip--jira">K</a></td>
+<td>Bước 9: Nối Alert Webhook GlitchTip → Jira</td>
+</tr>
+<tr>
+<td><a href="#l-b%C6%B0%E1%BB%9Bc-10--ch%E1%BA%A1y-worker">L</a></td>
+<td>Bước 10: Chạy worker</td>
+</tr>
+<tr>
+<td><a href="#m-b%C6%B0%E1%BB%9Bc-11--ki%E1%BB%83m-th%E1%BB%AD-end-to-end">M</a></td>
+<td>Bước 11: Kiểm thử end-to-end</td>
+</tr>
+<tr>
+<td><a href="#n-ph%E1%BB%A5-l%E1%BB%A5c-a--b%E1%BA%A3ng-%C4%91%E1%BA%A7y-%C4%91%E1%BB%A7-bi%E1%BA%BFn-m%C3%B4i-tr%C6%B0%E1%BB%9Dng">N</a></td>
+<td>Phụ lục A: Bảng biến môi trường</td>
+</tr>
+<tr>
+<td><a href="#o-ph%E1%BB%A5-l%E1%BB%A5c-b--b%E1%BA%A3n-%C4%91%E1%BB%93-ticket--service--repo">O</a></td>
+<td>Phụ lục B: Bản đồ ticket → service → repo</td>
+</tr>
+<tr>
+<td><a href="#p-ph%E1%BB%A5-l%E1%BB%A5c-c--x%E1%BB%AD-l%C3%BD-s%E1%BB%B1-c%E1%BB%91">P</a></td>
+<td>Phụ lục C: Xử lý sự cố</td>
+</tr>
+<tr>
+<td><a href="#q-ph%E1%BB%A5-l%E1%BB%A5c-d--gotcha-%C4%91%C3%A3-ki%E1%BB%83m-ch%E1%BB%A9ng">Q</a></td>
+<td>Phụ lục D: Gotcha đã kiểm chứng</td>
+</tr>
+<tr>
+<td><a href="#r-ph%E1%BB%A5-l%E1%BB%A5c-e--s%E1%BB%ADa-claudemd-cho-kh%E1%BB%9Bp-path-th%E1%BA%ADt">R</a></td>
+<td>Phụ lục E: Sửa <code>CLAUDE.md</code> cho khớp path</td>
+</tr>
+<tr>
+<td><a href="#s-ph%E1%BB%A5-l%E1%BB%A5c-f--b%E1%BA%A3o-m%E1%BA%ADt--rotate-secret">S</a></td>
+<td>Phụ lục F: Bảo mật &amp; rotate secret</td>
+</tr>
+</tbody>
+</table>
+</div>
+<hr />
+<h2 id="a-bảng-giá-trị-sẵn-có-readymade"><a class="anchor" href="#a-bảng-giá-trị-sẵn-có-readymade" aria-hidden="true">#</a>A. Bảng giá trị sẵn có (readymade)</h2>
+<p>Các giá trị dưới đây <strong>đã có sẵn trong repo</strong>, copy thẳng vào cấu hình. Riêng mục đánh dấu 🔒 là secret → lấy theo hướng dẫn tại nơi cấu hình, <strong>không</strong> ghi vào tài liệu.</p>
+<h3 id="a1-danh-tính-dự-án"><a class="anchor" href="#a1-danh-tính-dự-án" aria-hidden="true">#</a>A.1. Danh tính dự án</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Mục</th>
+<th>Giá trị</th>
+<th>Nơi dùng</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jira domain</td>
+<td><code>thanhpk6120.atlassian.net</code></td>
+<td><code>.env</code> → <code>JIRA_DOMAIN</code></td>
+</tr>
+<tr>
+<td>Jira email</td>
+<td><code>thanhpk6120@gmail.com</code></td>
+<td><code>.env</code> → <code>JIRA_EMAIL</code></td>
+</tr>
+<tr>
+<td>Jira API token</td>
+<td>🔒 lấy tại <code>id.atlassian.com/manage-profile/security/api-tokens</code></td>
+<td><code>.env</code> → <code>JIRA_TOKEN</code></td>
+</tr>
+<tr>
+<td>GitHub user</td>
+<td><code>thanhpk6120</code></td>
+<td><code>services.json</code> → <code>gitRepo</code></td>
+</tr>
+<tr>
+<td>GitHub PAT</td>
+<td>🔒 <code>github.com/settings/tokens</code> (scope <code>repo</code>)</td>
+<td><code>.env</code> → <code>GIT_TOKEN</code></td>
+</tr>
+<tr>
+<td>Claude model</td>
+<td><code>claude-sonnet-5</code></td>
+<td><code>.env</code> → <code>CLAUDE_MODEL</code></td>
+</tr>
+<tr>
+<td>Claude timeout</td>
+<td><code>300000</code> (5 phút)</td>
+<td><code>.env</code> → <code>CLAUDE_TIMEOUT_MS</code></td>
+</tr>
+<tr>
+<td>Số job AI song song</td>
+<td><code>2</code></td>
+<td><code>.env</code> → <code>MAX_CONCURRENT_JOBS</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="a2-bản-đồ-2-dự-án-jira--4-service-git--port"><a class="anchor" href="#a2-bản-đồ-2-dự-án-jira--4-service-git--port" aria-hidden="true">#</a>A.2. Bản đồ 2 dự án (Jira) ↔ 4 service (Git) ↔ port</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Jira projectKey</th>
+<th>Thư mục trong repo</th>
+<th>Service</th>
+<th>Repo Git (<code>owner/repo</code>)</th>
+<th>Cổng local</th>
+<th>Nhãn <code>service:*</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SHOP</code></td>
+<td><code>services/</code></td>
+<td><code>api</code></td>
+<td><code>thanhpk6120/shop-api</code></td>
+<td>8080</td>
+<td><code>service:api</code></td>
+</tr>
+<tr>
+<td><code>SHOP</code></td>
+<td><code>services/</code></td>
+<td><code>web</code></td>
+<td><code>thanhpk6120/shop-web</code></td>
+<td>5173</td>
+<td><code>service:web</code></td>
+</tr>
+<tr>
+<td><code>CMS</code></td>
+<td><code>services-2/</code></td>
+<td><code>api</code></td>
+<td><code>thanhpk6120/cms-api</code></td>
+<td>8081</td>
+<td><code>service:api</code></td>
+</tr>
+<tr>
+<td><code>CMS</code></td>
+<td><code>services-2/</code></td>
+<td><code>web</code></td>
+<td><code>thanhpk6120/cms-web</code></td>
+<td>5174</td>
+<td><code>service:web</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Nhánh Git cho <strong>mọi</strong> service: <code>dev = master</code>, <code>target = staging</code>, <code>prod = master</code>.</p>
+<blockquote>
+<p><strong>Không có bước verify trên staging.</strong> <code>branches.target</code> được đọc vào biến (<code>worker.js:782</code>) rồi <strong>bỏ không dùng</strong>; PR được mở và merge thẳng vào <code>prod</code> = <code>master</code> (<code>worker.js:876-882</code>, <code>mergePR</code> dùng <code>prodBranch</code>). Không có gate an toàn kiểu &quot;fix → staging → test → promote&quot;. Nếu cần gate, phải tự thêm ngoài worker.</p>
+</blockquote>
+<h3 id="a3-port-trong-hệ-thống"><a class="anchor" href="#a3-port-trong-hệ-thống" aria-hidden="true">#</a>A.3. Port trong hệ thống</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Port</th>
+<th>Dịch vụ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>8000</code></td>
+<td>GlitchTip (web)</td>
+</tr>
+<tr>
+<td><code>9000</code></td>
+<td><code>webhook_bridge.js</code> (tuỳ chọn, thay cho Jira Automation Rule)</td>
+</tr>
+<tr>
+<td><code>8080</code></td>
+<td>shop-api (Spring Boot)</td>
+</tr>
+<tr>
+<td><code>8081</code></td>
+<td>cms-api (Spring Boot)</td>
+</tr>
+<tr>
+<td><code>5173</code></td>
+<td>shop-web (Vite)</td>
+</tr>
+<tr>
+<td><code>5174</code></td>
+<td>cms-web (Vite)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<hr />
+<h2 id="b-preflight--kiểm-tra-môi-trường-trước-khi-cài"><a class="anchor" href="#b-preflight--kiểm-tra-môi-trường-trước-khi-cài" aria-hidden="true">#</a>B. Preflight — kiểm tra môi trường trước khi cài</h2>
+<p>Chạy <strong>từ CMD/PowerShell</strong>, không phải trong phiên Claude Code đang mở (tránh xung đột process).</p>
+<h3 id="b0--bước-0-bắt-buộc-claude-code-cli-phải-trả-lời-được"><a class="anchor" href="#b0--bước-0-bắt-buộc-claude-code-cli-phải-trả-lời-được" aria-hidden="true">#</a>B.0 — BƯỚC 0 (BẮT BUỘC): Claude Code CLI phải trả lời được</h3>
+<p>Worker chạy headless qua Claude Code CLI. <strong>Nếu CLI chưa hoạt động thì toàn bộ chức năng auto-fix sẽ fail</strong> — mọi job đều kết thúc với <code>Claude exited with code ...</code> và ticket bị gắn nhãn <code>auto-fix-failed</code>.</p>
+<p>Chạy <strong>trong CMD/PowerShell riêng</strong> (không chạy từ trong phiên Claude Code đang mở):</p>
+<pre class="highlight"><code>claude --version
+claude -p &quot;ping&quot;
+</code></pre>
+<p><strong>Kết quả mong đợi:</strong> lệnh trả về câu trả lời trong vài giây (ví dụ <code>PONG</code>). Nếu có → sang phần tiếp theo.</p>
+<p>Nếu <strong>không</strong> trả lời, xử lý theo thông báo lỗi:</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Thông báo lỗi</th>
+<th>Nguyên nhân</th>
+<th>Cách xử lý</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>API Error: Connection refused (ECONNREFUSED)</code></td>
+<td>CLI trỏ vào relay nội bộ đã tắt</td>
+<td>Xem cách xử lý bên dưới ↓</td>
+</tr>
+<tr>
+<td><code>Invalid API key · Fix external API key</code></td>
+<td><code>ANTHROPIC_API_KEY</code> / <code>ANTHROPIC_AUTH_TOKEN</code> là key của relay nội bộ, không phải key Anthropic thật</td>
+<td>Dùng <strong>Cách 1</strong> ở trên (<code>claude</code> → <code>/login</code>). Xoá 2 biến <code>ANTHROPIC_API_KEY</code> / <code>ANTHROPIC_AUTH_TOKEN</code> khỏi môi trường nếu chúng trỏ tới relay cũ.</td>
+</tr>
+<tr>
+<td><code>Not logged in · Please run /login</code></td>
+<td>Chưa đăng nhập Claude Code</td>
+<td>Chạy <code>claude</code> (interactive) → gõ <code>/login</code> → đăng nhập → thử lại <code>claude -p &quot;ping&quot;</code>.</td>
+</tr>
+<tr>
+<td><code>command not found</code></td>
+<td>Chưa cài Claude Code</td>
+<td><code>npm i -g @anthropic-ai/claude-code</code> → kiểm tra <code>where claude</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Cách xử lý lỗi <code>Connection refused</code>:</strong></p>
+<ol>
+<li><strong>Cách 1 (khuyến nghị):</strong> chạy <code>claude</code> (interactive) → gõ <code>/login</code> → đăng nhập bằng <strong>OAuth</strong> tài khoản Anthropic → thử lại <code>claude -p &quot;ping&quot;</code>.</li>
+<li><strong>Cách 2:</strong> đặt <code>ANTHROPIC_BASE_URL</code> trỏ tới <strong>endpoint thật</strong> rồi dùng API key thật của Anthropic.</li>
+<li><strong>Cách 3:</strong> khởi động lại app relay nội bộ đang phục vụ cổng đó.</li>
+</ol>
+<blockquote>
+<p>Xoá biến cũ (PowerShell, chỉ trong terminal hiện tại):</p>
+</blockquote>
+<div class="highlight"><pre><span></span><span class="nv">$env:ANTHROPIC_BASE_URL</span><span class="p">=</span><span class="s1">&#39;&#39;</span><span class="p">;</span> <span class="nv">$env:ANTHROPIC_API_KEY</span><span class="p">=</span><span class="s1">&#39;&#39;</span><span class="p">;</span> <span class="nv">$env:ANTHROPIC_AUTH_TOKEN</span><span class="p">=</span><span class="s1">&#39;&#39;</span>
+</pre></div>
+
+<blockquote>
+<p>Hoặc xoá vĩnh viễn: <code>setx ANTHROPIC_BASE_URL &quot;&quot;</code> (Windows → System Properties → Environment Variables).</p>
+<p>Sau khi đăng nhập OAuth, <strong>worker chạy ở CMD riêng</strong> sẽ dùng đúng credential đó. Không chạy worker từ trong phiên Claude Code đang mở (tránh kẹt process và hook).</p>
+</blockquote>
+<hr />
+<h3 id="b1-nodejs--206-bắt-buộc-có---env-file"><a class="anchor" href="#b1-nodejs--206-bắt-buộc-có---env-file" aria-hidden="true">#</a>B.1. Node.js ≥ 20.6 (bắt buộc có <code>--env-file</code>)</h3>
+<pre class="highlight"><code>node -v
+</code></pre>
+<p>Kết quả mong đợi: <code>v20.6.0</code> trở lên (máy này: <code>v24.18.0</code>).
+Nếu thấp hơn → cài Node 22 LTS: <a href="https://nodejs.org/en/download">https://nodejs.org/en/download</a></p>
+<h3 id="b2-git"><a class="anchor" href="#b2-git" aria-hidden="true">#</a>B.2. Git</h3>
+<pre class="highlight"><code>git --version
+</code></pre>
+<p>Kết quả mong đợi: <code>git version 2.4x</code> trở lên.</p>
+<h3 id="b3-claude-code-cli--xác-nhận-lần-2"><a class="anchor" href="#b3-claude-code-cli--xác-nhận-lần-2" aria-hidden="true">#</a>B.3. Claude Code CLI — xác nhận lần 2</h3>
+<pre class="highlight"><code>claude --version
+claude -p &quot;Reply with exactly: PING_OK&quot;
+</code></pre>
+<p><strong>Kết quả mong đợi:</strong> in ra <code>PING_OK</code> trong vài giây.</p>
+<blockquote>
+<p><code>worker.js</code> gọi <code>claude -p &lt;prompt&gt; --model &lt;CLAUDE_MODEL&gt; --dangerously-skip-permissions</code> (<code>worker.js:4</code>), nên <strong>không</strong> cần duyệt quyền thủ công khi chạy headless.</p>
+</blockquote>
+<h3 id="b4-docker-chỉ-cần-nếu-tự-dựng-glitchtip"><a class="anchor" href="#b4-docker-chỉ-cần-nếu-tự-dựng-glitchtip" aria-hidden="true">#</a>B.4. Docker (chỉ cần nếu tự dựng GlitchTip)</h3>
+<pre class="highlight"><code>docker --version
+docker compose version
+</code></pre>
+<p>Nếu không có → cài Docker Desktop: <a href="https://docs.docker.com/desktop/install/windows-install/">https://docs.docker.com/desktop/install/windows-install/</a>
+(Nếu dùng GlitchTip có sẵn ở hạ tầng nội bộ thì <strong>bỏ qua</strong> Bước 6.)</p>
+<h3 id="b5-java--maven-cho-service-java"><a class="anchor" href="#b5-java--maven-cho-service-java" aria-hidden="true">#</a>B.5. Java + Maven (cho service Java)</h3>
+<pre class="highlight"><code>java -version
+mvn -v
+</code></pre>
+<p>Kết quả mong đợi: Java 21 (Spring Boot 3.x yêu cầu ≥17), Maven ≥ 3.8.
+Nếu thiếu Maven: <code>choco install maven</code> hoặc tải <a href="https://maven.apache.org/download.cgi">https://maven.apache.org/download.cgi</a></p>
+<blockquote>
+<p>Repo có sẵn <code>mvnw.cmd</code> nên <strong>không bắt buộc</strong> cài Maven toàn cục.</p>
+</blockquote>
+<hr />
+<h2 id="c-bước-1--clone-repo-worker"><a class="anchor" href="#c-bước-1--clone-repo-worker" aria-hidden="true">#</a>C. Bước 1 — Clone repo worker</h2>
+<pre class="highlight"><code>cd /d I:\AI
+git clone https://github.com/&lt;ORG&gt;/auto-fix-bug-jira.git
+cd auto-fix-bug-jira
+</code></pre>
+<p>Kiểm tra:</p>
+<pre class="highlight"><code>dir
+</code></pre>
+<p>Phải thấy: <code>worker.js</code>, <code>projects.json</code>, <code>projects.json.example</code>, <code>services.json.example</code>, <code>.env.example</code>, <code>CLAUDE.md</code>, <code>start-worker.bat</code>, <code>restart-worker.bat</code>, <code>evidence.js</code>, <code>webhook_bridge.js</code>, <code>GLITCHTIP_GUIDE.md</code>.</p>
+<hr />
+<h2 id="d-bước-2--clone-4-repo-service-bắt-buộc"><a class="anchor" href="#d-bước-2--clone-4-repo-service-bắt-buộc" aria-hidden="true">#</a>D. Bước 2 — Clone 4 repo service (BẮT BUỘC)</h2>
+<p><code>.gitignore</code> của repo worker loại bỏ 4 thư mục này (dòng 27–30):</p>
+<pre class="highlight"><code>services-2/cms-api/
+services-2/cms-web/
+services/shop-api/
+services/shop-web/
+</code></pre>
+<p>→ Clone repo worker <strong>không</strong> kèm mã nguồn. Nếu thiếu, worker dừng ngay tại <code>worker.js:776-778</code>:
+<code>[Fail-Safe Abort] Thư mục service '...' không tồn tại.</code></p>
+<h3 id="d1-clone-đúng-path-theo-servicesjson"><a class="anchor" href="#d1-clone-đúng-path-theo-servicesjson" aria-hidden="true">#</a>D.1. Clone đúng path theo <code>services.json</code></h3>
+<pre class="highlight"><code>cd /d I:\AI\auto-fix-bug-jira
+
+git clone https://github.com/thanhpk6120/shop-api.git  services\shop-api
+git clone https://github.com/thanhpk6120/shop-web.git  services\shop-web
+git clone https://github.com/thanhpk6120/cms-api.git   services-2\cms-api
+git clone https://github.com/thanhpk6120/cms-web.git   services-2\cms-web
+</code></pre>
+<blockquote>
+<p>Nếu repo private: dùng PAT trong URL hoặc <code>git config --global credential.helper manager</code> rồi clone lại (Git Credential Manager sẽ hỏi user/token).</p>
+</blockquote>
+<h3 id="d2-tạo-nhánh-staging-nhánh-target"><a class="anchor" href="#d2-tạo-nhánh-staging-nhánh-target" aria-hidden="true">#</a>D.2. Tạo nhánh <code>staging</code> (nhánh <code>target</code>)</h3>
+<p>Các repo đã có <code>master</code>. Nếu chưa có <code>staging</code>:</p>
+<pre class="highlight"><code>for %R in (services\shop-api services\shop-web services-2\cms-api services-2\cms-web) do git -C %R fetch origin &amp;&amp; git -C %R push origin origin/master:staging
+</code></pre>
+<h3 id="d3-cấu-hình-remote-có-token-worker-tự-set-url-nhưng-set-sẵn-cho-chắc"><a class="anchor" href="#d3-cấu-hình-remote-có-token-worker-tự-set-url-nhưng-set-sẵn-cho-chắc" aria-hidden="true">#</a>D.3. Cấu hình remote có token (worker tự set-url, nhưng set sẵn cho chắc)</h3>
+<p>Worker tự làm <code>git remote set-url origin https://&lt;TOKEN&gt;@&lt;host&gt;/&lt;repo&gt;.git</code> (<code>worker.js:110-115</code>). Nếu muốn tự set:</p>
+<pre class="highlight"><code>git -C services\shop-api remote set-url origin https://&lt;GITHUB_TOKEN&gt;@github.com/thanhpk6120/shop-api.git
+</code></pre>
+<h3 id="d4-xác-minh-đủ-4-repo--đúng-branch"><a class="anchor" href="#d4-xác-minh-đủ-4-repo--đúng-branch" aria-hidden="true">#</a>D.4. Xác minh đủ 4 repo + đúng branch</h3>
+<pre class="highlight"><code>for %R in (services\shop-api services\shop-web services-2\cms-api services-2\cms-web) do @echo === %R === &amp; git -C %R remote -v &amp; git -C %R branch -a
+</code></pre>
+<p>Mong đợi mỗi repo có: <code>origin/...</code>, <code>master</code>, <code>staging</code>.</p>
+<hr />
+<h2 id="e-bước-3--tạo-file-env"><a class="anchor" href="#e-bước-3--tạo-file-env" aria-hidden="true">#</a>E. Bước 3 — Tạo file <code>.env</code></h2>
+<p><code>.env</code> <strong>đã được gitignore</strong> (<code>.gitignore:2</code>) → an toàn chứa secret.</p>
+<pre class="highlight"><code>cd /d I:\AI\auto-fix-bug-jira
+copy .env.example .env
+notepad .env
+</code></pre>
+<h3 id="e1-nội-dung-env-đầy-đủ-copy--điền"><a class="anchor" href="#e1-nội-dung-env-đầy-đủ-copy--điền" aria-hidden="true">#</a>E.1. Nội dung <code>.env</code> đầy đủ (copy &amp; điền)</h3>
+<div class="highlight"><pre><span></span><span class="c1"># --- JIRA CONFIG ---</span>
+<span class="na">JIRA_DOMAIN</span><span class="o">=</span><span class="s">thanhpk6120.atlassian.net</span>
+<span class="na">JIRA_EMAIL</span><span class="o">=</span><span class="s">thanhpk6120@gmail.com</span>
+<span class="na">JIRA_TOKEN</span><span class="o">=</span><span class="s">&lt;JIRA_API_TOKEN&gt;</span>
+
+<span class="c1"># --- CONCURRENCY CONFIG ---</span>
+<span class="na">MAX_CONCURRENT_JOBS</span><span class="o">=</span><span class="s">2</span>
+
+<span class="c1"># --- GIT HOST CONFIG ---</span>
+<span class="na">GIT_HOST</span><span class="o">=</span><span class="s">github.com</span>
+<span class="na">GIT_TOKEN</span><span class="o">=</span><span class="s">&lt;GITHUB_PAT&gt;</span>
+<span class="c1"># GIT_API_BASE_URL=          # bỏ trống nếu dùng GitHub API; điền nếu dùng GitLab/Gitea</span>
+
+<span class="c1"># --- CLAUDE CONFIG ---</span>
+<span class="na">CLAUDE_MODEL</span><span class="o">=</span><span class="s">claude-sonnet-5</span>
+<span class="na">CLAUDE_TIMEOUT_MS</span><span class="o">=</span><span class="s">300000</span>
+<span class="na">GIT_AUTHOR_NAME</span><span class="o">=</span><span class="s">AI Bug Fixer</span>
+<span class="na">GIT_AUTHOR_EMAIL</span><span class="o">=</span><span class="s">ai-bot@local.dev</span>
+
+<span class="c1"># --- TELEGRAM CONFIG ---</span>
+<span class="na">TELEGRAM_BOT_TOKEN</span><span class="o">=</span><span class="s">&lt;BOT_TOKEN&gt;</span>
+<span class="na">TELEGRAM_CHAT_ID</span><span class="o">=</span><span class="s">&lt;CHAT_ID&gt;</span>
+<span class="na">TELEGRAM_ALLOWED_USER_IDS</span><span class="o">=</span><span class="s">&lt;USER_ID_1&gt;,&lt;USER_ID_2&gt;</span>
+</pre></div>
+
+<h3 id="e2-lấy-từng-giá-trị-ở-đâu"><a class="anchor" href="#e2-lấy-từng-giá-trị-ở-đâu" aria-hidden="true">#</a>E.2. Lấy từng giá trị ở đâu</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Biến</th>
+<th>Cách lấy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>JIRA_TOKEN</code></td>
+<td><a href="https://id.atlassian.com/manage-profile/security/api-tokens">https://id.atlassian.com/manage-profile/security/api-tokens</a> → <strong>Create API token</strong> → copy (dạng <code>ATATT3x...</code>). Cần email + token để Basic Auth.</td>
+</tr>
+<tr>
+<td><code>GIT_TOKEN</code></td>
+<td><a href="https://github.com/settings/tokens">https://github.com/settings/tokens</a> → <strong>Generate new token (classic)</strong> → tick <code>repo</code> + <code>workflow</code> → copy (<code>ghp_...</code>). Token này <strong>còn</strong> được nhúng vào URL remote của 4 service repo (xem D.3) → coi như secret.</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_BOT_TOKEN</code></td>
+<td>Làm ở <strong>Bước 5</strong> → sinh sau.</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_CHAT_ID</code></td>
+<td>Làm ở <strong>Bước 5</strong> → sinh sau.</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_ALLOWED_USER_IDS</code></td>
+<td>Làm ở <strong>Bước 5</strong> → sinh sau.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<blockquote>
+<p>Bỏ trống <code>TELEGRAM_*</code> → worker <strong>vẫn chạy</strong>, chỉ mất chức năng duyệt Merge &amp; báo cáo. Telegram là bắt buộc nếu muốn duyệt PR bằng nút bấm.</p>
+</blockquote>
+<h3 id="e3-kiểm-tra-env-đã-nạp-đúng"><a class="anchor" href="#e3-kiểm-tra-env-đã-nạp-đúng" aria-hidden="true">#</a>E.3. Kiểm tra <code>.env</code> đã nạp đúng</h3>
+<pre class="highlight"><code>node --env-file=.env -e &quot;console.log(&#x27;domain=&#x27;,process.env.JIRA_DOMAIN,&#x27;| jobs=&#x27;,process.env.MAX_CONCURRENT_JOBS,&#x27;| model=&#x27;,process.env.CLAUDE_MODEL,&#x27;| telegram=&#x27;,!!process.env.TELEGRAM_BOT_TOKEN)&quot;
+</code></pre>
+<p>Mong đợi: <code>domain= thanhpk6120.atlassian.net | jobs= 2 | model= claude-sonnet-5 | telegram= true</code></p>
+<blockquote>
+<p><strong>Không</strong> kiểm tra bằng <code>node -e</code> (không có <code>--env-file</code>) — sẽ ra <code>undefined</code> và tưởng sai.</p>
+</blockquote>
+<h3 id="e4-test-token-trước-khi-chạy-worker"><a class="anchor" href="#e4-test-token-trước-khi-chạy-worker" aria-hidden="true">#</a>E.4. Test token trước khi chạy worker</h3>
+<pre class="highlight"><code>node --env-file=.env -e &quot;const a=&#x27;Basic &#x27;+Buffer.from(process.env.JIRA_EMAIL+&#x27;:&#x27;+process.env.JIRA_TOKEN).toString(&#x27;base64&#x27;);fetch(&#x27;https://&#x27;+process.env.JIRA_DOMAIN+&#x27;/rest/api/3/myself&#x27;,{headers:{Authorization:a}}).then(async r=&gt;{console.log(&#x27;Jira HTTP&#x27;,r.status, r.ok?(await r.json()).emailAddress:await r.text())})&quot;
+</code></pre>
+<p>Mong đợi: <code>Jira HTTP 200 thanhpk6120@gmail.com</code></p>
+<pre class="highlight"><code>node --env-file=.env -e &quot;const t=process.env.GIT_TOKEN||process.env.GITHUB_TOKEN;fetch(&#x27;https://api.github.com/user&#x27;,{headers:{Authorization:&#x27;Bearer &#x27;+t,&#x27;User-Agent&#x27;:&#x27;x&#x27;}}).then(async r=&gt;{console.log(&#x27;GitHub HTTP&#x27;,r.status, r.ok?(await r.json()).login:await r.text())})&quot;
+</code></pre>
+<p>Mong đợi: <code>GitHub HTTP 200 thanhpk6120</code></p>
+<blockquote>
+<p><code>GIT_TOKEN || GITHUB_TOKEN</code> — worker nhận cả hai tên (<code>worker.js:94</code>). <code>.env</code> hiện tại chỉ có <code>GITHUB_TOKEN</code>, nên nếu chỉ đọc <code>GIT_TOKEN</code> sẽ ra 401 dù token hoàn toàn hợp lệ.</p>
+</blockquote>
+<hr />
+<h2 id="f-bước-4--cấu-hình-projectsjson--servicesjson"><a class="anchor" href="#f-bước-4--cấu-hình-projectsjson--servicesjson" aria-hidden="true">#</a>F. Bước 4 — Cấu hình <code>projects.json</code> + <code>services.json</code></h2>
+<h3 id="f1-projectsjson-ở-root-repo-worker"><a class="anchor" href="#f1-projectsjson-ở-root-repo-worker" aria-hidden="true">#</a>F.1. <code>projects.json</code> (ở root repo worker)</h3>
+<p>Nội dung hiện tại đã đúng — kiểm tra lại:</p>
+<div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;projects&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;projectKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SHOP&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;services&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SHOP (Main Service)&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;services/shop-api (Spring Boot 8080) và services/shop-web (React Vite 5173)&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;projectKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CMS&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;services-2&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CMS (Service 2)&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;services-2/cms-api (Spring Boot 8081) và services-2/cms-web (React Vite 5174)&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+
+<p>Quy tắc: <code>projectKey</code> = key Jira, <code>path</code> = thư mục chứa <code>services.json</code> + code service.</p>
+<blockquote>
+<p><code>projectKey</code> ở đây <strong>không</strong> phải <code>KANBAN</code>/<code>ECOM</code> như trong <code>projects.json.example</code> — phải khớp với key Jira thật (<code>SHOP</code>, <code>CMS</code>), nếu không JQL sẽ không ra ticket nào.</p>
+</blockquote>
+<h3 id="f2-servicesservicesjson"><a class="anchor" href="#f2-servicesservicesjson" aria-hidden="true">#</a>F.2. <code>services/services.json</code></h3>
+<div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;services&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;api&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shop-api&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;gitRepo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;thanhpk6120/shop-api&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;branches&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;dev&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;staging&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prod&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;web&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shop-web&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;gitRepo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;thanhpk6120/shop-web&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;branches&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;dev&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;staging&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prod&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+
+<h3 id="f3-services-2servicesjson"><a class="anchor" href="#f3-services-2servicesjson" aria-hidden="true">#</a>F.3. <code>services-2/services.json</code></h3>
+<div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;services&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;api&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cms-api&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;gitRepo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;thanhpk6120/cms-api&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;branches&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;dev&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;staging&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prod&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;web&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cms-web&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;gitRepo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;thanhpk6120/cms-web&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;branches&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;dev&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;staging&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prod&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;master&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+
+<p>Ràng buộc bắt buộc (worker kiểm tra và <strong>Fail-Safe Abort</strong> nếu sai — <code>worker.js:771-773</code>):</p>
+<ul>
+<li><code>gitRepo</code> phải có (định dạng <code>owner/repo</code>).</li>
+<li><code>branches.dev</code> và <code>branches.prod</code> phải có.</li>
+<li><code>path</code> phải khớp đúng thư mục đã clone ở Bước 2.</li>
+</ul>
+<h3 id="f4-kiểm-tra-nhanh"><a class="anchor" href="#f4-kiểm-tra-nhanh" aria-hidden="true">#</a>F.4. Kiểm tra nhanh</h3>
+<pre class="highlight"><code>node -e &quot;const fs=require(&#x27;fs&#x27;);for(const p of [&#x27;projects.json&#x27;,&#x27;services/services.json&#x27;,&#x27;services-2/services.json&#x27;]){JSON.parse(fs.readFileSync(p,&#x27;utf8&#x27;));console.log(&#x27;OK&#x27;,p)}&quot;
+</code></pre>
+<hr />
+<h2 id="g-bước-5--setup-telegram-az"><a class="anchor" href="#g-bước-5--setup-telegram-az" aria-hidden="true">#</a>G. Bước 5 — Setup Telegram (A→Z)</h2>
+<p><strong>Code Telegram đã có sẵn trong <code>worker.js</code></strong> (không cần sửa code):</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Chức năng</th>
+<th>Hàm</th>
+<th>Dòng</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gửi tin nhắn text (HTML)</td>
+<td><code>sendTelegramMessage</code></td>
+<td><code>worker.js:343</code></td>
+</tr>
+<tr>
+<td>Gửi file log (evidence)</td>
+<td><code>sendTelegramDocument</code></td>
+<td><code>worker.js:361</code> <em>(dead code — không được gọi ở đâu)</em></td>
+</tr>
+<tr>
+<td>Gửi ảnh (MediaGroup)</td>
+<td><code>sendEvidenceToTelegram</code> trong <code>evidence.js</code></td>
+<td><code>evidence.js:35</code></td>
+</tr>
+<tr>
+<td>Sửa nội dung message (nút bấm)</td>
+<td><code>editMessageText</code></td>
+<td><code>worker.js:388</code></td>
+</tr>
+<tr>
+<td>Phản hồi callback (toast)</td>
+<td><code>answerCallbackQuery</code></td>
+<td><code>worker.js:378</code></td>
+</tr>
+<tr>
+<td>Long-polling nhận nút bấm</td>
+<td><code>pollTelegramUpdates</code></td>
+<td><code>worker.js:402</code></td>
+</tr>
+<tr>
+<td>Nút <strong>🔀 Merge PR</strong></td>
+<td><code>merge|&lt;pr&gt;|&lt;branch&gt;</code></td>
+<td><code>worker.js:430</code></td>
+</tr>
+<tr>
+<td>Nút <strong>⏳ Lưu vào hàng đợi</strong></td>
+<td><code>defer|&lt;pr&gt;|&lt;branch&gt;|&lt;issue&gt;</code></td>
+<td><code>worker.js:472</code></td>
+</tr>
+<tr>
+<td>Nút <strong>📋 Xem danh sách đợi Merge</strong></td>
+<td><code>list_pending</code></td>
+<td><code>worker.js:493</code></td>
+</tr>
+<tr>
+<td>Phân quyền người duyệt</td>
+<td><code>TELEGRAM_ALLOWED_USER_IDS</code></td>
+<td><code>worker.js:425</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="-trạng-thái-hiện-tại-telegram-đang-tắt"><a class="anchor" href="#-trạng-thái-hiện-tại-telegram-đang-tắt" aria-hidden="true">#</a>⚠️ Trạng thái hiện tại: Telegram <strong>đang TẮT</strong></h3>
+<p>File <code>.env</code> hiện tại <strong>không có</strong> biến <code>TELEGRAM_*</code> → <code>pollTelegramUpdates()</code> return ngay (<code>worker.js:403</code>) và <code>sendTelegramMessage()</code> trả <code>null</code> (<code>worker.js:344</code>). Worker vẫn chạy và vẫn tự fix lỗi, nhưng:</p>
+<ul>
+<li><strong>không</strong> có tin nhắn báo &quot;PR đã tạo&quot; → không có nút Merge → <strong>PR phải mở thủ công</strong> trên GitHub;</li>
+<li><strong>không</strong> có tin nhắn báo lỗi/timeout (xem mục L.5(a)).</li>
+</ul>
+<p>→ Làm Bước 5 để bật.</p>
+<h3 id="4-điểm-dễ-sai"><a class="anchor" href="#4-điểm-dễ-sai" aria-hidden="true">#</a>4 điểm dễ sai</h3>
+<ol>
+<li><strong><code>TELEGRAM_ALLOWED_USER_IDS</code> là user ID của người BẤM nút, KHÔNG phải chat ID.</strong> Để trống → <code>ALLOWED_USER_IDS = []</code> → <strong>mọi</strong> nút bị chặn với <code>⛔ Bạn không có quyền duyệt tác vụ này!</code> (<code>worker.js:425-428</code>).</li>
+<li><strong><code>TELEGRAM_CHAT_ID</code> của nhóm/supergroup có dạng <code>-100...</code></strong> (chat riêng thì số dương). Bot <strong>phải được add vào nhóm</strong> mới nhận được tin.</li>
+<li><strong>Worker CHỈ xử lý <code>callback_query</code></strong> (nút bấm inline) — <code>worker.js:410-412</code>. Tin nhắn text thường (<code>/start</code>, <code>/status</code>, gõ tay) <strong>bị bỏ qua hoàn toàn</strong>. Không có lệnh text nào.</li>
+<li><strong>Chỉ 1 consumer được <code>getUpdates</code>.</strong> Worker tự long-poll <code>getUpdates</code> (<code>worker.js:405</code>) → chạy 2 worker cùng token sẽ tranh nhau, mỗi bên nhận một phần update (bot im lặng với nút bấm). Lấy <code>chat_id</code> bằng <code>getUpdates</code> <strong>trước khi</strong> bật worker.
+<blockquote>
+<p>Không cần tắt privacy mode: worker chỉ gửi tin + nhận <code>callback_query</code>, không đọc message thường.</p>
+</blockquote>
+</li>
+</ol>
+<blockquote>
+<p>Gửi ảnh evidence: chỉ file có prefix <code>screenshot</code> + đuôi <code>.png</code> mới được gửi (<code>evidence.js:41</code>). <code>sendMediaGroup</code> cần <strong>2–10 ảnh</strong> — Telegram trả lỗi 400 nếu chỉ có 1 ảnh (<code>evidence.js:55-65</code>).</p>
+</blockquote>
+<h3 id="g1-tạo-bot"><a class="anchor" href="#g1-tạo-bot" aria-hidden="true">#</a>G.1. Tạo bot</h3>
+<ol>
+<li>Mở Telegram (desktop/mobile) → tìm <code>@BotFather</code> (bot chính thức, tick xanh) → <strong>Start</strong>.</li>
+<li>Gõ <code>/newbot</code> → Enter.</li>
+<li>Nhận <strong>tên hiển thị</strong> của bot, ví dụ: <code>SHOP AutoFix Bot</code>.</li>
+<li>Nhận <strong>username</strong> của bot, bắt buộc kết thúc bằng <code>bot</code>, ví dụ: <code>shop_autofix_bot</code>.</li>
+<li>BotFather trả về <strong>HTTP API token</strong>, dạng <code>1234567890:AAH1aV...r8sXk</code>
+→ copy nguyên văn (giữ dấu <code>:</code>) → điền vào <code>TELEGRAM_BOT_TOKEN</code> trong <code>.env</code>.</li>
+</ol>
+<h3 id="g2-tạo-nhóm-on-call-khuyến-nghị-và-lấy-chat_id"><a class="anchor" href="#g2-tạo-nhóm-on-call-khuyến-nghị-và-lấy-chat_id" aria-hidden="true">#</a>G.2. Tạo nhóm On-call (khuyến nghị) và lấy CHAT_ID</h3>
+<ol>
+<li>Tạo nhóm Telegram (ví dụ <code>SHOP On-call</code>), thêm <strong>bot</strong> vào nhóm (nên đặt quyền <strong>Admin</strong> để bot đọc được tin nhắn trong nhóm).</li>
+<li>Trong nhóm, gửi một tin nhắn bất kỳ, ví dụ: <code>worker test</code>.</li>
+<li>Mở terminal, dán (thay <code>&lt;BOT_TOKEN&gt;</code>):</li>
+</ol>
+<pre class="highlight"><code>curl &quot;https://api.telegram.org/bot&lt;BOT_TOKEN&gt;/getUpdates?offset=-1&quot;
+</code></pre>
+<ol start="4">
+<li>
+<p>Trong JSON trả về, tìm dòng có <code>&quot;chat&quot;</code> — ví dụ:</p>
+<p><code>&quot;chat&quot;: { &quot;id&quot;: -1001234567890, &quot;type&quot;: &quot;supergroup&quot;, &quot;title&quot;: &quot;SHOP On-call&quot; }</code></p>
+<p>→ <code>chat.id</code> (số âm với nhóm/supergroup, số dương với chat riêng) chính là <code>TELEGRAM_CHAT_ID</code>.</p>
+</li>
+</ol>
+<blockquote>
+<p>Nếu kết quả <code>{&quot;ok&quot;:true,&quot;result&quot;:[]}</code> → bot chưa nhận được message nào. Nhắn thêm 1 tin trong nhóm rồi chạy lại lệnh (chờ vài giây).
+Nếu lỗi <code>409 Conflict</code> → bot đang được chạy ở nơi khác với cùng token (ví dụ worker cũ chưa tắt) → tắt hết rồi thử lại.
+<strong>Chạy lệnh <code>getUpdates</code> này TRƯỚC khi bật worker.</strong> Worker tự long-poll <code>getUpdates</code> (<code>worker.js:405</code>) — chạy song song 2 consumer sẽ tranh nhau queue, mỗi bên chỉ nhận được một phần update.</p>
+</blockquote>
+<h3 id="g3-lấy-user-id-của-người-được-phép-duyệt"><a class="anchor" href="#g3-lấy-user-id-của-người-được-phép-duyệt" aria-hidden="true">#</a>G.3. Lấy USER ID của người được phép duyệt</h3>
+<ol>
+<li>
+<p>Trong Telegram, mở <code>@userinfobot</code> → <strong>Start</strong> → bot trả về <code>Id: 123456789</code>, <code>First name: ...</code>.</p>
+</li>
+<li>
+<p>Lấy <code>Id</code> đó → điền vào <code>TELEGRAM_ALLOWED_USER_IDS</code> (nhiều người thì phân cách bằng dấu phẩy, không khoảng trắng):</p>
+<p><code>TELEGRAM_ALLOWED_USER_IDS=123456789,987654321</code></p>
+</li>
+<li>
+<p>Kiểm tra danh sách bot trong nhóm: mở nhóm → member list → xác nhận bot đã vào.</p>
+</li>
+</ol>
+<blockquote>
+<p>Chỉ user id nằm trong <code>TELEGRAM_ALLOWED_USER_IDS</code> mới bấm được nút Merge; user khác bấm sẽ nhận <code>⛔ Bạn không có quyền duyệt tác vụ này!</code> (<code>worker.js:425-428</code>).</p>
+</blockquote>
+<h3 id="g4-kiểm-tra-bot-sống-2-lệnh"><a class="anchor" href="#g4-kiểm-tra-bot-sống-2-lệnh" aria-hidden="true">#</a>G.4. Kiểm tra bot sống (2 lệnh)</h3>
+<pre class="highlight"><code>curl &quot;https://api.telegram.org/bot&lt;BOT_TOKEN&gt;/getMe&quot;
+</code></pre>
+<p>Mong đợi: <code>{&quot;ok&quot;:true,&quot;result&quot;:{&quot;id&quot;:...,&quot;username&quot;:&quot;shop_autofix_bot&quot;,...}}</code></p>
+<p>Gửi tin thử:</p>
+<pre class="highlight"><code>curl -X POST &quot;https://api.telegram.org/bot&lt;BOT_TOKEN&gt;/sendMessage&quot; -H &quot;Content-Type: application/json&quot; -d &quot;{\&quot;chat_id\&quot;:&lt;CHAT_ID&gt;,\&quot;text\&quot;:\&quot;AutoFix worker test OK\&quot;}&quot;
+</code></pre>
+<p>Mong đợi: <code>{&quot;ok&quot;:true,...}</code> và tin nhắn hiện trong nhóm.</p>
+<h3 id="g5-cấu-hình-env-hoàn-tất"><a class="anchor" href="#g5-cấu-hình-env-hoàn-tất" aria-hidden="true">#</a>G.5. Cấu hình <code>.env</code> hoàn tất</h3>
+<div class="highlight"><pre><span></span><span class="na">TELEGRAM_BOT_TOKEN</span><span class="o">=</span><span class="s">1234567890:AAH1aV...r8sXk</span>
+<span class="na">TELEGRAM_CHAT_ID</span><span class="o">=</span><span class="s">-1001234567890</span>
+<span class="na">TELEGRAM_ALLOWED_USER_IDS</span><span class="o">=</span><span class="s">123456789,987654321</span>
+</pre></div>
+
+<h3 id="g6-tuỳ-chọn-bot-cần-quyền-đọc-message-trong-nhóm"><a class="anchor" href="#g6-tuỳ-chọn-bot-cần-quyền-đọc-message-trong-nhóm" aria-hidden="true">#</a>G.6. (Tuỳ chọn) Bot cần quyền đọc message trong nhóm</h3>
+<p>Nếu nhóm <strong>đã bật</strong> chế độ &quot;Restricted&quot; (chỉ admin thêm bot) → vào nhóm → quản trị nhóm → <strong>Quyền admin</strong> → bật <strong>Đọc tin nhắn</strong>. Nút inline vẫn hoạt động dù bot là thành viên thường.</p>
+<hr />
+<h2 id="h-bước-6--setup-glitchtip-docker"><a class="anchor" href="#h-bước-6--setup-glitchtip-docker" aria-hidden="true">#</a>H. Bước 6 — Setup GlitchTip (Docker)</h2>
+<blockquote>
+<p>Nếu hạ tầng đã có sẵn GlitchTip (VD trong môi trường nội bộ) → <strong>bỏ qua Bước 6</strong>, sang thẳng Bước 7 với host/DSN do admin cấp.</p>
+</blockquote>
+<h3 id="h1-chuẩn-bị-thư-mục--secret-key"><a class="anchor" href="#h1-chuẩn-bị-thư-mục--secret-key" aria-hidden="true">#</a>H.1. Chuẩn bị thư mục + secret key</h3>
+<div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>/opt/glitchtip<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/opt/glitchtip
+<span class="nv">SECRET_KEY</span><span class="o">=</span><span class="k">$(</span>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span><span class="k">)</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;SECRET_KEY=</span><span class="si">${</span><span class="nv">SECRET_KEY</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>&gt;<span class="w"> </span>.env
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;GLITCHTIP_DOMAIN=http://&lt;DOMAIN_OR_IP&gt;:8000&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>.env
+</pre></div>
+
+<h3 id="h2-tạo-docker-composeyml"><a class="anchor" href="#h2-tạo-docker-composeyml" aria-hidden="true">#</a>H.2. Tạo <code>docker-compose.yml</code></h3>
+<div class="highlight"><pre><span></span>cat<span class="w"> </span>&gt;<span class="w"> </span>docker-compose.yml<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+<span class="s">version: &#39;3.8&#39;</span>
+
+<span class="s">x-environment: &amp;default-environment</span>
+<span class="s">  DATABASE_URL: postgres://glitchtip:glitchtip_password@postgres:5432/glitchtip</span>
+<span class="s">  REDIS_URL: redis://redis:6379/0</span>
+<span class="s">  SECRET_KEY: ${SECRET_KEY}</span>
+<span class="s">  PORT: 8000</span>
+<span class="s">  GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN}</span>
+<span class="s">  DEFAULT_FROM_EMAIL: alerts@yourdomain.com</span>
+<span class="s">  EMAIL_URL: consolemail://</span>
+<span class="s">  CELERY_WORKER_AUTOSCALE: &quot;1,3&quot;</span>
+
+<span class="s">services:</span>
+<span class="s">  postgres:</span>
+<span class="s">    image: postgres:16</span>
+<span class="s">    environment:</span>
+<span class="s">      POSTGRES_USER: glitchtip</span>
+<span class="s">      POSTGRES_PASSWORD: glitchtip_password</span>
+<span class="s">      POSTGRES_DB: glitchtip</span>
+<span class="s">    volumes:</span>
+<span class="s">      - postgres-data:/var/lib/postgresql/data</span>
+<span class="s">    restart: unless-stopped</span>
+
+<span class="s">  redis:</span>
+<span class="s">    image: redis:7</span>
+<span class="s">    restart: unless-stopped</span>
+
+<span class="s">  web:</span>
+<span class="s">    image: glitchtip/glitchtip:v4.0</span>
+<span class="s">    depends_on:</span>
+<span class="s">      - postgres</span>
+<span class="s">      - redis</span>
+<span class="s">    ports:</span>
+<span class="s">      - &quot;8000:8000&quot;</span>
+<span class="s">    environment: *default-environment</span>
+<span class="s">    command: ./bin/run-web.sh</span>
+<span class="s">    restart: unless-stopped</span>
+
+<span class="s">  worker:</span>
+<span class="s">    image: glitchtip/glitchtip:v4.0</span>
+<span class="s">    depends_on:</span>
+<span class="s">      - postgres</span>
+<span class="s">      - redis</span>
+<span class="s">    environment: *default-environment</span>
+<span class="s">    command: ./bin/run-celery-with-beat.sh</span>
+<span class="s">    restart: unless-stopped</span>
+
+<span class="s">volumes:</span>
+<span class="s">  postgres-data:</span>
+<span class="s">EOF</span>
+</pre></div>
+
+<h3 id="h3-migrate--khởi-động"><a class="anchor" href="#h3-migrate--khởi-động" aria-hidden="true">#</a>H.3. Migrate + khởi động</h3>
+<div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>web<span class="w"> </span>./manage.py<span class="w"> </span>migrate
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+docker<span class="w"> </span>compose<span class="w"> </span>ps
+</pre></div>
+
+<p>Mong đợi: <code>postgres</code>, <code>redis</code>, <code>web</code>, <code>worker</code> đều <code>Up</code>.</p>
+<h3 id="h4-tạo-tài-khoản--project-lấy-dsn"><a class="anchor" href="#h4-tạo-tài-khoản--project-lấy-dsn" aria-hidden="true">#</a>H.4. Tạo tài khoản + project (lấy DSN)</h3>
+<ol>
+<li>
+<p>Mở <code>http://&lt;DOMAIN_OR_IP&gt;:8000</code> → <strong>đăng ký</strong> (tài khoản đầu tiên tự động là <strong>superuser</strong>).</p>
+</li>
+<li>
+<p>Tạo <strong>Organization</strong>.</p>
+</li>
+<li>
+<p><strong>Create Project</strong> → chọn platform:</p>
+<ul>
+<li>Backend Spring Boot → <strong>Java / Spring Boot</strong></li>
+<li>Frontend React → <strong>JavaScript / React</strong></li>
+</ul>
+</li>
+<li>
+<p>Đặt tên project theo quy ước slug để Automation Rule đọc được:</p>
+<ul>
+<li><code>SHOP-be</code> (backend shop), <code>SHOP-fe</code> (frontend shop)</li>
+<li><code>CMS-be</code>, <code>CMS-fe</code></li>
+</ul>
+</li>
+<li>
+<p>Sau khi tạo → copy <strong>DSN</strong>, dạng:</p>
+<p><code>http://&lt;PROJECT_KEY&gt;@&lt;GLITCHTIP_HOST&gt;:8000/&lt;PROJECT_ID&gt;</code></p>
+<p>⚠️ <strong>Không ghi DSN thật vào tài liệu</strong> — điền vào cấu hình service ở Bước 7.</p>
+</li>
+</ol>
+<hr />
+<h2 id="i-bước-7--gắn-sentry-dsn-vào-4-service"><a class="anchor" href="#i-bước-7--gắn-sentry-dsn-vào-4-service" aria-hidden="true">#</a>I. Bước 7 — Gắn Sentry DSN vào 4 service</h2>
+<p>DSN lấy từ Bước 6 (hoặc do admin cấp). Mỗi project GlitchTip = 1 DSN riêng.</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Loại</th>
+<th>File cần sửa</th>
+<th>Biến</th>
+<th>Giá trị</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>services/shop-api</code></td>
+<td>Spring Boot</td>
+<td><code>src/main/resources/application.properties</code></td>
+<td><code>sentry.dsn</code></td>
+<td><code>&lt;DSN_PROJECT_SHOP_BE&gt;</code></td>
+</tr>
+<tr>
+<td><code>services/shop-web</code></td>
+<td>Vite React</td>
+<td><code>.env</code> (file <code>.env</code> của Vite, đã tồn tại)</td>
+<td><code>VITE_SENTRY_DSN</code></td>
+<td><code>&lt;DSN_PROJECT_SHOP_FE&gt;</code></td>
+</tr>
+<tr>
+<td><code>services-2/cms-api</code></td>
+<td>Spring Boot</td>
+<td><code>src/main/resources/application.properties</code></td>
+<td><code>sentry.dsn</code></td>
+<td><code>&lt;DSN_PROJECT_CMS_BE&gt;</code></td>
+</tr>
+<tr>
+<td><code>services-2/cms-web</code></td>
+<td>Vite React</td>
+<td><code>src/main.jsx</code> — <strong>chưa có file <code>.env</code></strong>, phải tạo</td>
+<td><code>VITE_SENTRY_DSN</code></td>
+<td><code>&lt;DSN_PROJECT_CMS_FE&gt;</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<blockquote>
+<p>Lưu ý: <code>cms-web</code> <strong>không có</strong> <code>application.properties</code> (đây là Vite React, không phải Spring Boot) và <strong>không có</strong> file <code>.env</code> sẵn → phải tạo <code>services-2/cms-web/.env</code>.
+Phiên bản SDK khác nhau: <code>shop-web</code> dùng <code>@sentry/react ^11.6.0</code>, <code>cms-web</code> dùng <code>@sentry/react ^8.34.0</code>. Cả hai đều hợp lệ — không cần đồng nhất.</p>
+</blockquote>
+<h3 id="i1-backend-spring-boot-2-repo-api"><a class="anchor" href="#i1-backend-spring-boot-2-repo-api" aria-hidden="true">#</a>I.1. Backend Spring Boot (2 repo <code>api</code>)</h3>
+<p><strong>a) Dependency</strong> — kiểm tra <code>pom.xml</code> đã có chưa:</p>
+<div class="highlight"><pre><span></span><span class="nt">&lt;dependency&gt;</span>
+<span class="w">    </span><span class="nt">&lt;groupId&gt;</span>io.sentry<span class="nt">&lt;/groupId&gt;</span>
+<span class="w">    </span><span class="nt">&lt;artifactId&gt;</span>sentry-spring-boot-starter-jakarta<span class="nt">&lt;/artifactId&gt;</span>
+<span class="w">    </span><span class="nt">&lt;version&gt;</span>7.14.0<span class="nt">&lt;/version&gt;</span>
+<span class="nt">&lt;/dependency&gt;</span>
+</pre></div>
+
+<p>Nếu thiếu → thêm vào <code>&lt;dependencies&gt;</code>.</p>
+<p><strong>b) <code>application.properties</code></strong></p>
+<div class="highlight"><pre><span></span><span class="na">server.port</span><span class="o">=</span><span class="s">8080</span>
+<span class="na">server.forward-headers-strategy</span><span class="o">=</span><span class="s">framework</span>
+<span class="na">spring.application.name</span><span class="o">=</span><span class="s">poc-backend-service</span>
+<span class="na">sentry.dsn</span><span class="o">=</span><span class="s">&lt;DSN_PROJECT_SHOP_BE&gt;</span>
+</pre></div>
+
+<blockquote>
+<p><code>shop-api</code> không có dependency <code>spring-boot-starter-actuator</code> → <strong>không</strong> dùng <code>/actuator/health</code> để health-check. Dùng <code>GET /api/calculate</code> hoặc port check.</p>
+</blockquote>
+<h3 id="i2-frontend-react-2-repo-web"><a class="anchor" href="#i2-frontend-react-2-repo-web" aria-hidden="true">#</a>I.2. Frontend React (2 repo <code>web</code>)</h3>
+<p><strong>a) Dependency</strong> — kiểm tra <code>package.json</code> đã có chưa (giữ nguyên version sẵn có của từng repo):</p>
+<div class="highlight"><pre><span></span><span class="c1">// services/shop-web/package.json</span>
+<span class="nt">&quot;@sentry/react&quot;</span><span class="p">:</span><span class="w"> </span><span class="nt">&quot;^11.6.0&quot;</span>
+<span class="c1">// services-2/cms-web/package.json</span>
+<span class="nt">&quot;@sentry/react&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;^8.34.0&quot;</span>
+</pre></div>
+
+<p><strong>b) Khởi tạo Sentry</strong> — <code>src/main.jsx</code> (cả 2 repo):</p>
+<div class="highlight"><pre><span></span><span class="k">import</span><span class="w"> </span><span class="nx">React</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;react&#39;</span>
+<span class="k">import</span><span class="w"> </span><span class="nx">ReactDOM</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;react-dom/client&#39;</span>
+<span class="k">import</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">Sentry</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@sentry/react&#39;</span>
+<span class="k">import</span><span class="w"> </span><span class="nx">App</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;./App.jsx&#39;</span>
+
+<span class="nx">Sentry</span><span class="p">.</span><span class="nx">init</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">dsn</span><span class="o">:</span><span class="w"> </span><span class="k">import</span><span class="p">.</span><span class="nx">meta</span><span class="p">.</span><span class="nx">env</span><span class="p">.</span><span class="nx">VITE_SENTRY_DSN</span><span class="p">,</span><span class="w">   </span><span class="c1">// KHÔNG hardcode fallback trong code</span>
+<span class="w">  </span><span class="nx">environment</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;development&#39;</span><span class="p">,</span>
+<span class="p">})</span>
+</pre></div>
+
+<blockquote>
+<p><strong>Bỏ</strong> chuỗi DSN fallback hardcode sẵn có trong <code>main.jsx</code> (dạng <code>|| &quot;http://...@...:8000/2&quot;</code> ở <code>shop-web</code>, <code>/4</code> ở <code>cms-web</code>). DSN là thông tin định danh dự án — để trong code là lộ DSN qua bundle. Chuyển hết sang biến môi trường (xem Phụ lục F).</p>
+<p><code>cms-web</code> hiện còn có <code>Sentry.browserTracingIntegration()</code> + <code>Sentry.replayIntegration()</code> + <code>tracesSampleRate: 1.0</code>. Giữ nguyên nếu muốn có tracing/replay; chỉ sửa dòng <code>dsn</code>.</p>
+</blockquote>
+<p><strong>c) File <code>.env</code> của Vite</strong></p>
+<p><code>services/shop-web/.env</code> — <strong>đã tồn tại</strong>, sửa lại:</p>
+<div class="highlight"><pre><span></span><span class="na">VITE_SENTRY_DSN</span><span class="o">=</span><span class="s">&lt;DSN_PROJECT_SHOP_FE&gt;</span>
+</pre></div>
+
+<p><code>services-2/cms-web/.env</code> — <strong>chưa tồn tại</strong>, tạo mới:</p>
+<pre class="highlight"><code>type nul &gt; services-2\cms-web\.env
+notepad services-2\cms-web\.env
+</code></pre>
+<div class="highlight"><pre><span></span><span class="na">VITE_SENTRY_DSN</span><span class="o">=</span><span class="s">&lt;DSN_PROJECT_CMS_FE&gt;</span>
+</pre></div>
+
+<blockquote>
+<p><code>.env</code> của Vite <strong>phải</strong> nằm ở thư mục gốc của từng repo web (cạnh <code>package.json</code>), không phải ở root repo worker.</p>
+</blockquote>
+<h3 id="i3-kiểm-tra-dsn-hoạt-động"><a class="anchor" href="#i3-kiểm-tra-dsn-hoạt-động" aria-hidden="true">#</a>I.3. Kiểm tra DSN hoạt động</h3>
+<pre class="highlight"><code>cd services\shop-web
+npm install
+npm run dev
+</code></pre>
+<p>Mở <code>http://localhost:5173</code>, cố tình throw lỗi trong console (<code>throw new Error('DSN test')</code>) → vào GlitchTip, kiểm tra project có issue mới.</p>
+<hr />
+<h2 id="j-bước-8--setup-jira-project--automation-rule"><a class="anchor" href="#j-bước-8--setup-jira-project--automation-rule" aria-hidden="true">#</a>J. Bước 8 — Setup Jira (project + Automation Rule)</h2>
+<h3 id="j1-project-jira"><a class="anchor" href="#j1-project-jira" aria-hidden="true">#</a>J.1. Project Jira</h3>
+<ul>
+<li>Project <code>SHOP</code> (đã có, tên <code>P1-SHOP</code>) và <code>CMS</code> (<code>P2-CMS</code>).</li>
+<li>Issue type <code>Bug</code> phải tồn tại.</li>
+<li>Workflow hiện có các trạng thái: <code>Backlog</code>, <code>Selected for Development</code>, <code>In Progress</code>, <code>Done</code>.
+<blockquote>
+<p>Worker chỉ quét ticket ở trạng thái: <code>&quot;To Do&quot;</code>, <code>&quot;Selected for Development&quot;</code>, <code>&quot;Backlog&quot;</code> (<code>worker.js:636</code>).
+Nếu workflow của bạn không có <code>To Do</code>, dùng <code>Backlog</code> hoặc <code>Selected for Development</code>.</p>
+</blockquote>
+</li>
+</ul>
+<h3 id="j2-tạo-automation-rule-nhận-webhook-từ-glitchtip"><a class="anchor" href="#j2-tạo-automation-rule-nhận-webhook-từ-glitchtip" aria-hidden="true">#</a>J.2. Tạo Automation Rule (nhận webhook từ GlitchTip)</h3>
+<p>Vào <strong>Project Settings → Automation → Rules → Create rule</strong>:</p>
+<ol>
+<li><strong>Trigger:</strong> <code>Incoming Webhook</code> → copy <strong>Webhook URL</strong> (dạng <code>https://&lt;domain&gt;.atlassian.net/automation/...</code>) → lưu lại, sẽ dán vào GlitchTip ở Bước 9.</li>
+<li><strong>Action:</strong> <code>Create issue</code>.</li>
+<li>Thông số issue bằng <strong>Smart Values</strong>:</li>
+</ol>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Trường</th>
+<th>Giá trị</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Project</td>
+<td><code>SHOP</code> (hoặc <code>CMS</code>)</td>
+</tr>
+<tr>
+<td>Issue Type</td>
+<td><code>Bug</code></td>
+</tr>
+<tr>
+<td>Summary</td>
+<td><code>[AUTO-BUG] {{webhookData.data.issue.title}}</code></td>
+</tr>
+<tr>
+<td>Description</td>
+<td>xem bên dưới</td>
+</tr>
+<tr>
+<td><strong>Labels</strong></td>
+<td><code>auto-fix</code> + <code>service:api</code> hoặc <code>service:web</code> (xem bên dưới)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Description</strong> (copy nguyên):</p>
+<pre class="highlight"><code>*Môi trường:* {{webhookData.data.issue.environment}}
+*Dự án:* {{webhookData.data.issue.project.name}}
+
+*Chi tiết lỗi:*
+{code}
+{{webhookData.data.issue.culprit}}
+{code}
+
+*Link chi tiết (GlitchTip):* {{webhookData.data.issue.web_url}}
+</code></pre>
+<ol start="4">
+<li>
+<p><strong>Labels — quan trọng nhất.</strong> Worker dùng 2 nhãn:</p>
+<ul>
+<li><code>auto-fix</code> → đánh dấu &quot;ticket này dành cho bot&quot; (JQL cũng chấp nhận <code>summary ~ &quot;AUTO-BUG&quot;</code>).</li>
+<li><code>service:api</code> hoặc <code>service:web</code> → <strong>bắt buộc</strong>, dùng để định tuyến tới đúng thư mục mã nguồn.
+Thiếu nhãn này → worker dừng: <code>[Fail-Safe Abort] Ticket ... không có nhãn 'service:*'</code> (<code>worker.js:744-746</code>).</li>
+</ul>
+<p>Smart Values có thể tự trích <code>service:{{...}}</code>, nhưng dễ sai. <strong>Khuyến nghị tạo 2 rule riêng</strong> (mỗi rule 1 nhãn cứng) cho mỗi project:</p>
+<ul>
+<li>Rule <code>SHOP Backend</code> → labels <code>auto-fix</code>, <code>service:api</code></li>
+<li>Rule <code>SHOP Frontend</code> → labels <code>auto-fix</code>, <code>service:web</code></li>
+<li>Tương tự cho <code>CMS</code>.</li>
+</ul>
+</li>
+<li>
+<p><strong>Bật rule:</strong> nút trên cùng → <em>Turn it on</em>.</p>
+</li>
+</ol>
+<h3 id="j3-tuỳ-chọn-thay-jira-automation-bằng-webhook_bridgejs"><a class="anchor" href="#j3-tuỳ-chọn-thay-jira-automation-bằng-webhook_bridgejs" aria-hidden="true">#</a>J.3. (Tuỳ chọn) Thay Jira Automation bằng <code>webhook_bridge.js</code></h3>
+<p>Repo có sẵn bridge tự tạo ticket (dành cho ai không dùng được Jira Automation):</p>
+<pre class="highlight"><code>cd /d I:\AI\auto-fix-bug-jira
+npm install express
+node --env-file=.env webhook_bridge.js
+</code></pre>
+<ul>
+<li>Lắng nghe <code>http://127.0.0.1:9000/webhook/:projectKey</code> (VD <code>.../webhook/SHOP</code>).</li>
+<li>Tự suy luận <code>service:*</code> từ tên project GlitchTip: slug chứa <code>-fe</code> → <code>service:web</code>, chứa <code>-be</code> → <code>service:api</code> (<code>webhook_bridge.js:24-30</code>).</li>
+<li>Trong GlitchTip, đặt URL webhook là <code>http://&lt;HOST_CỦA_BRIDGE&gt;:9000/webhook/SHOP</code>.</li>
+<li>Ưu điểm: không cần Jira Automation. Nhược điểm: bridge phải chạy 24/7 và chỉ chạy trong mạng nội bộ.</li>
+</ul>
+<hr />
+<h2 id="k-bước-9--nối-alert-webhook-glitchtip--jira"><a class="anchor" href="#k-bước-9--nối-alert-webhook-glitchtip--jira" aria-hidden="true">#</a>K. Bước 9 — Nối Alert Webhook GlitchTip → Jira</h2>
+<p>Trong GlitchTip: <strong>Settings → Projects → chọn project → tab Alerts → Create Alert</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Trường</th>
+<th>Giá trị</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Name</td>
+<td><code>Auto-Fix → Jira</code></td>
+</tr>
+<tr>
+<td>Conditions</td>
+<td><code>A new issue is created</code> (hoặc <code>An issue is seen more than X times</code> → X=1)</td>
+</tr>
+<tr>
+<td>Action</td>
+<td><code>Webhook</code></td>
+</tr>
+<tr>
+<td>URL</td>
+<td><strong>Webhook URL</strong> đã copy ở J.2 bước 1</td>
+</tr>
+<tr>
+<td>Send initial data</td>
+<td>bật (để có <code>issue.title</code>, <code>issue.culprit</code>, <code>issue.web_url</code>)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Lặp lại cho từng project (SHOP-be, SHOP-fe, CMS-be, CMS-fe).</p>
+<blockquote>
+<p>Nếu dùng <code>webhook_bridge.js</code> thì URL điền <code>http://&lt;HOST&gt;:9000/webhook/&lt;PROJECT_KEY&gt;</code>.</p>
+</blockquote>
+<hr />
+<h2 id="l-bước-10--chạy-worker"><a class="anchor" href="#l-bước-10--chạy-worker" aria-hidden="true">#</a>L. Bước 10 — Chạy worker</h2>
+<h3 id="l1-kiểm-tra-lần-cuối-trước-khi-chạy"><a class="anchor" href="#l1-kiểm-tra-lần-cuối-trước-khi-chạy" aria-hidden="true">#</a>L.1. Kiểm tra lần cuối trước khi chạy</h3>
+<pre class="highlight"><code>cd /d I:\AI\auto-fix-bug-jira
+node --env-file=.env -e &quot;console.log(&#x27;domain&#x27;,!!process.env.JIRA_DOMAIN,&#x27;| token&#x27;,!!process.env.JIRA_TOKEN,&#x27;| git&#x27;,!!(process.env.GIT_TOKEN||process.env.GITHUB_TOKEN),&#x27;| telegram&#x27;,!!process.env.TELEGRAM_BOT_TOKEN,&#x27;| chat&#x27;,!!process.env.TELEGRAM_CHAT_ID,&#x27;| users&#x27;,!!process.env.TELEGRAM_ALLOWED_USER_IDS)&quot;
+</code></pre>
+<p>Mong đợi tất cả là <code>true</code> (trừ <code>telegram</code>/<code>chat</code>/<code>users</code> nếu bạn cố ý bỏ Telegram — khi đó tính năng duyệt Merge sẽ không dùng được).</p>
+<blockquote>
+<p><code>GIT_TOKEN</code> và <code>GITHUB_TOKEN</code> là hai tên cho cùng một giá trị; worker nhận cả hai (<code>worker.js:94</code>). Dùng <code>GIT_TOKEN</code> cho khớp <code>.env.example</code>.</p>
+</blockquote>
+<p>Kiểm tra 4 thư mục service tồn tại:</p>
+<pre class="highlight"><code>dir services\shop-api services\shop-web services-2\cms-api services-2\cms-web
+</code></pre>
+<h3 id="l2-chạy-bằng-script-có-sẵn-khuyến-nghị"><a class="anchor" href="#l2-chạy-bằng-script-có-sẵn-khuyến-nghị" aria-hidden="true">#</a>L.2. Chạy bằng script có sẵn (khuyến nghị)</h3>
+<pre class="highlight"><code>cd /d I:\AI\auto-fix-bug-jira
+start-worker.bat
+</code></pre>
+<p>Script sẽ: <code>cd /d %~dp0</code> (đúng CWD) → <code>node --env-file=.env worker.js</code> → giữ cửa sổ mở để xem log.</p>
+<h3 id="l3-log-khởi-động-mong-đợi"><a class="anchor" href="#l3-log-khởi-động-mong-đợi" aria-hidden="true">#</a>L.3. Log khởi động mong đợi</h3>
+<pre class="highlight"><code>🚀 Singleton Master Worker Level 3 đã sẵn sàng...
+• MAX_CONCURRENT_JOBS: 2
+[+] Đang quét Jira cho dự án SHOP...
+[+] Tìm thấy 0 bug cho dự án SHOP
+[+] Đang quét Jira cho dự án CMS...
+[+] Tìm thấy 0 bug cho dự án CMS
+</code></pre>
+<p>Lặp lại mỗi <strong>15 giây</strong> (<code>worker.js:957</code>).</p>
+<h3 id="l4-restart--dừng-worker"><a class="anchor" href="#l4-restart--dừng-worker" aria-hidden="true">#</a>L.4. Restart / dừng worker</h3>
+<pre class="highlight"><code>restart-worker.bat
+</code></pre>
+<p><code>restart-worker.bat</code> kill tiến trình <code>node worker.js</code> cũ rồi mở cửa sổ mới. Dừng: đóng cửa sổ CMD, hoặc:</p>
+<pre class="highlight"><code>taskkill /F /FI &quot;WINDOWTITLE eq Jira-AutoFix-Worker*&quot; /T
+</code></pre>
+<blockquote>
+<p><strong>Chỉ chạy 1 worker.</strong> Hai worker cùng chạy sẽ tranh nhãn <code>auto-fix-processing</code> (may mắc, còn lại bỏ qua) — nhưng vẫn nên tránh.
+<strong>Chạy worker ở CMD riêng</strong>, không chạy từ trong phiên Claude Code (tránh kẹt process/hook).
+⚠️ <strong>Sửa <code>projects.json</code> / <code>services.json</code> phải restart worker.</strong> Worker đọc <code>projects.json</code> <strong>đúng 1 lần lúc khởi động</strong> (<code>worker.js:31-34</code>) → không có cơ chế reload tự động. (<code>GLITCHTIP_GUIDE.md:258</code> nói ngược lại — tài liệu đó sai.)
+⚠️ <strong>Hook <code>.claude/hooks/pre-tool-use.js</code> hiện KHÔNG có hiệu lực.</strong> Hook chỉ chạy khi được đăng ký trong <code>.claude/settings.json</code>, mà repo worker <strong>chưa có</strong> file này. Tức là bảo vệ chặn <code>rm -rf</code> / <code>.env</code> / <code>worker.js</code> <strong>đang tắt</strong>. Muốn bật, tạo <code>.claude/settings.json</code>:</p>
+</blockquote>
+<div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;PreToolUse&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;matcher&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;*&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;node .claude/hooks/pre-tool-use.js&quot;</span><span class="w"> </span><span class="p">}]</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+<blockquote>
+<p>Lưu ý: hook chặn theo <strong>mẫu chuỗi</strong> trong argv + JSON của tool → cũng chặn nhầm khi AI đọc/ghi file có tên chứa <code>.env</code> (vd <code>.env.example</code>).</p>
+</blockquote>
+<h3 id="l5-worker-đang-làm-gì-mỗi-vòng-15s"><a class="anchor" href="#l5-worker-đang-làm-gì-mỗi-vòng-15s" aria-hidden="true">#</a>L.5. Worker đang làm gì mỗi vòng 15s</h3>
+<p><strong>JQL mà worker dùng</strong> (<code>worker.js:636</code>):</p>
+<pre class="highlight"><code>project = &lt;KEY&gt; AND issuetype = Bug
+  AND status IN (&quot;To Do&quot;, &quot;Selected for Development&quot;, &quot;Backlog&quot;)
+  AND (labels = &quot;auto-fix&quot; OR summary ~ &quot;AUTO-BUG&quot;)
+  AND labels != &quot;auto-fix-processing&quot; AND labels != &quot;auto-fix-done&quot; AND labels != &quot;auto-fix-failed&quot;
+</code></pre>
+<p>Các bước mỗi vòng 15 giây:</p>
+<ol>
+<li>Với mỗi project trong <code>projects.json</code> → gọi JQL trên → lấy <strong>tối đa 1 ticket / project / vòng</strong>.</li>
+<li>Gắn nhãn <code>auto-fix-processing</code> (khoá atomics).</li>
+<li>Đọc nhãn <code>service:*</code> → suy ra thư mục service qua <code>services.json</code>.</li>
+<li>Tạo git worktree <code>.worktrees/hotfix/&lt;ISSUE_KEY&gt;</code> từ <code>origin/&lt;dev&gt;</code> → copy <code>CLAUDE.md</code> vào → chạy Claude 2 vòng:
+<ul>
+<li><strong>Repro</strong>: prompt = <code>Bug: ${summary}</code> + hướng dẫn repro (<code>worker.js:849</code>). Claude chạy trong worktree, nên evidence AI ghi nằm ở <code>&lt;service&gt;/.worktrees/hotfix/&lt;KEY&gt;/evidence/...</code> — <strong>không</strong> phải thư mục evidence của worker, và bị xoá khi worktree được dọn.</li>
+<li><strong>Fix</strong> (sửa code + chạy lệnh test + tự <code>git commit</code> theo Conventional Commits).</li>
+</ul>
+</li>
+<li>Kiểm tra diff có thật sự đổi mã nguồn (<code>src/</code>, <code>.java</code>, <code>.js</code>, <code>.ts</code>, <code>.pom.xml</code>, <code>package.json</code>) → nếu không có thì <strong>không</strong> tạo PR rác.</li>
+<li><code>git push -u &lt;remote&gt; hotfix/&lt;KEY&gt; --force</code> → mở PR vào nhánh <code>prod</code> (<code>master</code>).</li>
+<li>Gửi Telegram kèm nút <strong>🔀 Merge PR</strong> / <strong>⏳ Lưu vào hàng đợi</strong> + link PR; ghi vào <code>pending-prs.json</code>; comment lên Jira.</li>
+<li>Gỡ nhãn <code>auto-fix-processing</code>, thêm <code>auto-fix-done</code> (thành công) hoặc <code>auto-fix-failed</code> (lỗi).</li>
+</ol>
+<blockquote>
+<p>⚠️ <strong>Ba giới hạn thực tế cần biết trước khi vận hành:</strong></p>
+<p><strong>(a) Worker KHÔNG gửi Telegram khi job fail.</strong>
+<code>processBugWrapper</code> (<code>worker.js:681-686</code>) chỉ gắn nhãn <code>auto-fix-failed</code> + comment trên Jira. <strong>Không</strong> có tin nhắn Telegram báo lỗi/timeout. Muốn biết job fail → xem nhãn trên Jira hoặc log terminal, <strong>đừng chờ tin nhắn Telegram</strong>.</p>
+<p><strong>(b) Bước kiểm tra &quot;repro phải có evidence&quot; luôn pass.</strong>
+Worker tự tạo sẵn <code>evidence/&lt;KEY&gt;/before/&lt;KEY&gt;_error.txt</code> từ Jira description <strong>trước</strong> khi gọi Claude (<code>worker.js:842-844</code>), rồi kiểm tra chính thư mục đó khác rỗng (<code>worker.js:856-859</code>) → luôn đạt.
+Đây là <strong>known gap</strong>, không phải cơ chế chặn repro. Lệnh thực sự có tác dụng là dừng khi AI in ra <code>[AI_STOP] REPRO_FAILED</code> (<code>worker.js:851-854</code>).</p>
+<p><strong>(c) <code>evidence/&lt;KEY&gt;/after/</code> luôn rỗng.</strong>
+Worker chỉ gọi <code>sendEvidenceToTelegram(...,'before',...)</code> một lần (<code>worker.js:861</code>). Không có &quot;Alert 2: gửi evidence sau khi fix&quot; như mô tả trong <code>README.md</code> — đó là tài liệu cũ, không phải hành vi hiện tại.</p>
+<p>⚠️ <strong>Jira Description KHÔNG được truyền cho Claude.</strong>
+Prompt chỉ chứa <code>summary</code> (<code>worker.js:849</code>); description chỉ được ghi ra file <code>&lt;KEY&gt;_error.txt</code> ở thư mục evidence của worker (ngoài worktree → AI không đọc được).
+→ <strong>Đặt toàn bộ thông tin quan trọng vào SUMMARY của ticket</strong>: endpoint bị lỗi, stack trace, service, URL. Không dựa vào Description.</p>
+</blockquote>
+<hr />
+<h2 id="m-bước-11--kiểm-thử-end-to-end"><a class="anchor" href="#m-bước-11--kiểm-thử-end-to-end" aria-hidden="true">#</a>M. Bước 11 — Kiểm thử end-to-end</h2>
+<h3 id="m1-tạo-ticket-thử-nhanh-nhất-không-qua-glitchtip"><a class="anchor" href="#m1-tạo-ticket-thử-nhanh-nhất-không-qua-glitchtip" aria-hidden="true">#</a>M.1. Tạo ticket thử (nhanh nhất, không qua GlitchTip)</h3>
+<p>Trong Jira, tạo issue:</p>
+<ul>
+<li>Project <code>SHOP</code>, type <code>Bug</code></li>
+<li>Summary: <code>[AUTO-BUG] Divide by zero at GET /api/calculate — ArithmeticException: / by zero (service:api)</code> → <strong>nhét hết thông tin lỗi vào Summary</strong> (xem cảnh báo ở L.5)</li>
+<li>Labels: <code>auto-fix</code>, <code>service:api</code></li>
+<li>Status: <code>Backlog</code> (hoặc <code>Selected for Development</code>)</li>
+</ul>
+<blockquote>
+<p>Dùng <code>summary ~ &quot;AUTO-BUG&quot;</code> cũng kích hoạt được, nhưng <strong>vẫn phải có</strong> nhãn <code>service:api</code>.
+⚠️ <strong>Phải tạo ticket MỚI.</strong> Ticket cũ <code>SHOP-1</code>/<code>SHOP-2</code> đã mang nhãn <code>auto-fix-done</code> / <code>auto-fix-failed</code> → JQL loại trừ → worker <strong>bỏ qua</strong>. Nếu muốn chạy lại ticket cũ thì phải <strong>xoá 3 nhãn</strong> <code>auto-fix-processing</code>, <code>auto-fix-done</code>, <code>auto-fix-failed</code>.
+⚠️ <strong>Tên trạng thái phải khớp chính xác.</strong> JQL lọc <code>status IN (&quot;To Do&quot;, &quot;Selected for Development&quot;, &quot;Backlog&quot;)</code>. Workflow SHOP/CMS hiện có <code>Backlog</code>, <code>Selected for Development</code>, <code>In Progress</code>, <code>Done</code> — <strong>không có <code>To Do</code></strong>. Nếu ticket nằm ở <code>In Progress</code>/<code>Done</code> → worker không thấy. Chuyển về <code>Backlog</code> trước khi test.</p>
+<p>💡 Nếu &quot;Tìm thấy 0 bug&quot; mà bạn thấy rõ ticket trên UI → chạy lệnh kiểm tra JQL ở <strong>Phụ lục D, mục D.19</strong> để xem chính xác nguyên nhân (thiếu label? sai status? thiếu issuetype Bug?).</p>
+</blockquote>
+<h3 id="m2-theo-dõi"><a class="anchor" href="#m2-theo-dõi" aria-hidden="true">#</a>M.2. Theo dõi</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Nơi</th>
+<th>Mong đợi</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CMD worker</td>
+<td><code>[+] Giao việc thành công: SHOP-x</code> → <code>Bước 1: Repro Bug</code> → <code>Bước 2: Fix Bug</code> → <code>Đã tự động mở Pull Request</code></td>
+</tr>
+<tr>
+<td>Jira</td>
+<td>Issue chuyển nhãn <code>auto-fix-processing</code> → <code>auto-fix-done</code>; có comment &quot;✅ [Auto-Fix Bot] Đã tạo Pull Request…&quot;</td>
+</tr>
+<tr>
+<td>Telegram</td>
+<td>Tin &quot;🚨 LỖI MỚI PHÁT HIỆN &amp; REPRO&quot; (kèm log) rồi &quot;🚀 ĐÃ FIX &amp; TẠO PR THÀNH CÔNG!&quot; kèm 2 nút</td>
+</tr>
+<tr>
+<td><code>evidence/&lt;KEY&gt;/before/</code></td>
+<td>Có <code>&lt;KEY&gt;_error.txt</code> (tự tạo từ Jira description). Evidence do AI ghi nằm ở <code>&lt;service&gt;/.worktrees/hotfix/&lt;KEY&gt;/evidence/</code> và bị xoá khi dọn worktree. Thư mục <code>after/</code> luôn rỗng.</td>
+</tr>
+<tr>
+<td>GitHub</td>
+<td>PR <code>[Auto-Fix] SHOP-x: ...</code> từ <code>hotfix/SHOP-x</code> → <code>master</code></td>
+</tr>
+<tr>
+<td><code>pending-prs.json</code></td>
+<td>Thêm entry PR mới</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="m3-duyệt-merge-từ-telegram"><a class="anchor" href="#m3-duyệt-merge-từ-telegram" aria-hidden="true">#</a>M.3. Duyệt Merge từ Telegram</h3>
+<p>Bấm <strong>🔀 Merge PR</strong> → worker gọi GitHub API merge (<code>worker.js:316-341</code>) → thông báo &quot;🎉 Đã Merge thành công PR #n&quot;.
+Nếu PR có <strong>conflict</strong> → worker tự gọi Claude gỡ conflict rồi merge lại (<code>worker.js:518-560</code>).
+Bấm <strong>⏳ Lưu vào hàng đợi</strong> → lưu vào <code>pending-prs.json</code>, sau đó bấm <strong>📋 Xem danh sách đợi Merge</strong> để merge từ danh sách.</p>
+<h3 id="m4-test-đầy-đủ-qua-glitchtip"><a class="anchor" href="#m4-test-đầy-đủ-qua-glitchtip" aria-hidden="true">#</a>M.4. Test đầy đủ qua GlitchTip</h3>
+<ol>
+<li>Chạy <code>shop-api</code> (<code>8080</code>) và <code>shop-web</code> (<code>5173</code>).</li>
+<li>Mở web → gọi endpoint lỗi (<code>http://localhost:8080/api/calculate</code>).</li>
+<li>GlitchTip phải hiện issue mới (project tương ứng).</li>
+<li>Alert webhook → Jira Automation → tạo ticket <code>[AUTO-BUG] ...</code> với nhãn <code>auto-fix</code> + <code>service:api</code>.</li>
+<li>Worker tự xử lý như M.2.</li>
+</ol>
+<hr />
+<h2 id="n-phụ-lục-a--bảng-đầy-đủ-biến-môi-trường"><a class="anchor" href="#n-phụ-lục-a--bảng-đầy-đủ-biến-môi-trường" aria-hidden="true">#</a>N. Phụ lục A — Bảng đầy đủ biến môi trường</h2>
+<p>Biến nào worker thực sự đọc (đã kiểm tra trong <code>worker.js</code>):</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Biến</th>
+<th>Bắt buộc</th>
+<th>Mặc định</th>
+<th>Dòng</th>
+<th>Vai trò</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>JIRA_DOMAIN</code></td>
+<td>✅</td>
+<td>—</td>
+<td>67</td>
+<td>Domain Jira Cloud</td>
+</tr>
+<tr>
+<td><code>JIRA_EMAIL</code></td>
+<td>✅</td>
+<td>—</td>
+<td>68</td>
+<td>Email đăng nhập Jira</td>
+</tr>
+<tr>
+<td><code>JIRA_TOKEN</code></td>
+<td>✅</td>
+<td>—</td>
+<td>69</td>
+<td>API token Jira (Basic Auth)</td>
+</tr>
+<tr>
+<td><code>MAX_CONCURRENT_JOBS</code></td>
+<td></td>
+<td><code>2</code></td>
+<td>25</td>
+<td>Số job AI chạy song song</td>
+</tr>
+<tr>
+<td><code>GIT_HOST</code></td>
+<td></td>
+<td><code>github.com</code></td>
+<td>93</td>
+<td>Git host (github.com / git tự host)</td>
+</tr>
+<tr>
+<td><code>GIT_TOKEN</code></td>
+<td>✅</td>
+<td>fallback <code>GITHUB_TOKEN</code></td>
+<td>94</td>
+<td>PAT — cần cho push + tạo PR</td>
+</tr>
+<tr>
+<td><code>GITHUB_TOKEN</code></td>
+<td></td>
+<td>—</td>
+<td>94→95</td>
+<td>Tên cũ, vẫn dùng được</td>
+</tr>
+<tr>
+<td><code>GIT_API_BASE_URL</code></td>
+<td></td>
+<td>rỗng</td>
+<td>96</td>
+<td>API tạo MR cho GitLab/Gitea, có <code>{repo}</code></td>
+</tr>
+<tr>
+<td><code>GIT_AUTHOR_NAME</code></td>
+<td></td>
+<td><code>AI Bug Fixer</code></td>
+<td>121</td>
+<td>Tên author commit</td>
+</tr>
+<tr>
+<td><code>GIT_AUTHOR_EMAIL</code></td>
+<td></td>
+<td><code>ai-bot@local.dev</code></td>
+<td>122</td>
+<td>Email author commit</td>
+</tr>
+<tr>
+<td><code>CLAUDE_MODEL</code></td>
+<td></td>
+<td><code>claude-3-7-sonnet</code></td>
+<td>123</td>
+<td>Model truyền cho <code>claude -p --model</code></td>
+</tr>
+<tr>
+<td><code>CLAUDE_TIMEOUT_MS</code></td>
+<td></td>
+<td><code>300000</code></td>
+<td>124</td>
+<td>Timeout mỗi lượt Claude (ms)</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_BOT_TOKEN</code></td>
+<td>(khuyến nghị)</td>
+<td>—</td>
+<td>126</td>
+<td>Token bot; thiếu → tắt Telegram</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_CHAT_ID</code></td>
+<td>(khuyến nghị)</td>
+<td>—</td>
+<td>127</td>
+<td>Chat nhận tin; thiếu → không gửi được</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_ALLOWED_USER_IDS</code></td>
+<td>(khuyến nghị)</td>
+<td>rỗng → <strong>chặn mọi người</strong></td>
+<td>128</td>
+<td>Danh sách user id được duyệt Merge</td>
+</tr>
+</tbody>
+</table>
+</div>
+<blockquote>
+<p>⚠️ <code>TELEGRAM_ALLOWED_USER_IDS</code> để trống ⇒ <code>ALLOWED_USER_IDS = []</code> ⇒ <strong>không ai</strong> bấm được nút Merge (<code>worker.js:425</code>).
+⚠️ Biến <code>GIT_DEV_BRANCH</code>, <code>GIT_TARGET_BRANCH</code>, <code>GIT_PROD_BRANCH</code>, <code>GIT_BASE_BRANCH</code>, <code>PREPROD_HEALTH_URL</code>, <code>GITHUB_REPO</code> có trong <code>README.md</code> cũ <strong>không còn được worker đọc</strong> — nhánh lấy từ <code>services.json</code>. Có thể bỏ qua các dòng đó.</p>
+</blockquote>
+<hr />
+<h2 id="o-phụ-lục-b--bản-đồ-ticket--service--repo"><a class="anchor" href="#o-phụ-lục-b--bản-đồ-ticket--service--repo" aria-hidden="true">#</a>O. Phụ lục B — Bản đồ ticket → service → repo</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Nhãn <code>service:*</code></th>
+<th><code>services.json</code> khớp theo</th>
+<th>Thư mục</th>
+<th>Repo</th>
+<th>Lệnh test worker bảo AI chạy</th>
+<th>Lệnh chạy được thực tế</th>
+<th>Prefix commit AI phải dùng</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>service:api</code></td>
+<td><code>name === &quot;api&quot;</code></td>
+<td><code>services/shop-api</code></td>
+<td><code>thanhpk6120/shop-api</code></td>
+<td><code>'./mvnw clean test' or 'mvn clean test'</code></td>
+<td><code>mvnw.cmd -B clean test</code> hoặc <code>mvn -B clean test</code> (Windows: <code>./mvnw</code> <strong>không</strong> chạy)</td>
+<td><code>fix(api):</code></td>
+</tr>
+<tr>
+<td><code>service:web</code></td>
+<td><code>name === &quot;web&quot;</code></td>
+<td><code>services/shop-web</code></td>
+<td><code>thanhpk6120/shop-web</code></td>
+<td><code>'npm test' or 'npm run build'</code></td>
+<td><code>npm run build</code> — <code>npm test</code> <strong>lỗi</strong> vì <code>shop-web</code> không có script <code>test</code></td>
+<td><code>fix(web):</code></td>
+</tr>
+<tr>
+<td><code>service:api</code> (CMS)</td>
+<td><code>name === &quot;api&quot;</code></td>
+<td><code>services-2/cms-api</code></td>
+<td><code>thanhpk6120/cms-api</code></td>
+<td><code>'./mvnw clean test' or 'mvn clean test'</code></td>
+<td><code>mvnw.cmd -B clean test</code></td>
+<td><code>fix(api):</code></td>
+</tr>
+<tr>
+<td><code>service:web</code> (CMS)</td>
+<td><code>name === &quot;web&quot;</code></td>
+<td><code>services-2/cms-web</code></td>
+<td><code>thanhpk6120/cms-web</code></td>
+<td><code>'npm test' or 'npm run build'</code></td>
+<td><code>npm run build</code> (<code>cms-web</code> có script <code>test</code> nhưng nó chỉ echo, không kiểm tra gì)</td>
+<td><code>fix(web):</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Cơ chế khớp (<code>worker.js:765</code>): <code>s.name === targetService || s.path === targetService || s.path.endsWith(targetService)</code>.</p>
+<blockquote>
+<p>Lệnh test AI được bảo chạy lấy từ <code>worker.js:833-838</code> (chọn theo <code>targetService</code>).
+⚠️ Vì prompt AI hardcode <code>npm test</code> cho web nhưng <code>shop-web</code> không có script đó → AI sẽ báo lỗi test. Sửa <code>CLAUDE.md</code> (Phụ lục E) để chỉ định <code>npm run build</code> cho web là cách nhanh nhất.</p>
+</blockquote>
+<hr />
+<h2 id="p-phụ-lục-c--xử-lý-sự-cố"><a class="anchor" href="#p-phụ-lục-c--xử-lý-sự-cố" aria-hidden="true">#</a>P. Phụ lục C — Xử lý sự cố</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Triệu chứng trong log</th>
+<th>Nguyên nhân</th>
+<th>Cách xử lý</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>⚠️ Thiếu cấu hình Jira...</code></td>
+<td>Thiếu <code>JIRA_DOMAIN/EMAIL/TOKEN</code> trong <code>.env</code></td>
+<td>Chạy lại bằng <code>node --env-file=.env worker.js</code> (không dùng <code>node worker.js</code>)</td>
+</tr>
+<tr>
+<td><code>[+] Tìm thấy 0 bug cho dự án SHOP</code> mãi</td>
+<td>Sai <code>projectKey</code> trong <code>projects.json</code>, hoặc ticket thiếu nhãn <code>auto-fix</code>, hoặc sai trạng thái</td>
+<td>Chạy lệnh kiểm tra JQL ở <strong>Phụ lục D, mục D.19</strong>; sửa label/status</td>
+</tr>
+<tr>
+<td><code>[Fail-Safe Abort] Ticket ... không có nhãn 'service:*'</code></td>
+<td>Ticket thiếu nhãn <code>service:api</code>/<code>service:web</code></td>
+<td>Thêm nhãn trong Jira</td>
+</tr>
+<tr>
+<td><code>[Fail-Safe Abort] Thư mục service '...' không tồn tại</code></td>
+<td>Chưa clone repo service (Bước 2)</td>
+<td>Clone đúng path trong <code>services.json</code></td>
+</tr>
+<tr>
+<td><code>[Fail-Safe Abort] Service '...' thiếu gitRepo hoặc cấu hình branches</code></td>
+<td><code>services.json</code> thiếu trường</td>
+<td>Bổ sung <code>gitRepo</code>, <code>branches.dev</code>, <code>branches.prod</code></td>
+</tr>
+<tr>
+<td><code>Claude exited with code ...</code></td>
+<td>Claude CLI chưa đăng nhập / relay nội bộ tắt / sai <code>ANTHROPIC_BASE_URL</code></td>
+<td>Làm <strong>Bước 0</strong> (B.0): <code>claude -p &quot;ping&quot;</code> phải trả lời được. Nếu OK mà worker vẫn lỗi → chạy worker từ CMD riêng có cùng biến môi trường</td>
+</tr>
+<tr>
+<td><code>Repro fail: AI không tạo bằng chứng trong 'evidence/&lt;KEY&gt;/before'</code></td>
+<td>AI không chạy lệnh lưu evidence</td>
+<td>Xem log Claude trong terminal; sửa <code>CLAUDE.md</code> để rõ quy tắc evidence</td>
+</tr>
+<tr>
+<td><code>PR rỗng hoặc chỉ chứa file rác/evidence</code></td>
+<td>AI sửa file ngoài <code>src/</code> hoặc không sửa gì</td>
+<td>Xem diff trong worktree; sửa <code>CLAUDE.md</code></td>
+</tr>
+<tr>
+<td><code>npm error Missing script: &quot;test&quot;</code></td>
+<td><code>shop-web/package.json</code> <strong>không có</strong> script <code>test</code></td>
+<td>Dùng <code>npm run build</code> (đã build OK); hoặc thêm script <code>test</code> vào <code>package.json</code></td>
+</tr>
+<tr>
+<td><code>Host &lt;X&gt; là git tự host, không hỗ trợ tự động merge</code></td>
+<td><code>GIT_HOST</code> ≠ github.com</td>
+<td>Merge thủ công trên Web UI, hoặc dùng GitHub</td>
+</tr>
+<tr>
+<td><code>Giả lập mở PR thành công: #demo-pr</code></td>
+<td>Thiếu <code>GIT_TOKEN</code></td>
+<td>Điền <code>GIT_TOKEN</code> vào <code>.env</code></td>
+</tr>
+<tr>
+<td>Không có tin nhắn Telegram nào</td>
+<td>Thiếu <code>TELEGRAM_BOT_TOKEN</code>/<code>CHAT_ID</code>, hoặc bot chưa vào nhóm</td>
+<td>Làm lại Bước 5, test bằng <code>curl .../getMe</code> và <code>sendMessage</code></td>
+</tr>
+<tr>
+<td><code>⛔ Bạn không có quyền duyệt tác vụ này!</code></td>
+<td>User id không có trong <code>TELEGRAM_ALLOWED_USER_IDS</code></td>
+<td>Thêm id (lấy từ <code>@userinfobot</code>)</td>
+</tr>
+<tr>
+<td><code>409 Conflict</code> khi gọi <code>getUpdates</code></td>
+<td>Có tiến trình khác đang dùng cùng bot token</td>
+<td>Tắt worker cũ (<code>restart-worker.bat</code>) rồi thử lại</td>
+</tr>
+<tr>
+<td>Worktree sót lại</td>
+<td>Worker bị kill giữa chừng</td>
+<td><code>git -C services\shop-api worktree list</code> → <code>git worktree remove --force .worktrees/hotfix/&lt;KEY&gt;</code> + <code>git worktree prune</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<hr />
+<h2 id="q-phụ-lục-d--gotcha-đã-kiểm-chứng"><a class="anchor" href="#q-phụ-lục-d--gotcha-đã-kiểm-chứng" aria-hidden="true">#</a>Q. Phụ lục D — Gotcha đã kiểm chứng</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Gotcha</th>
+<th>Bằng chứng</th>
+<th>Xử lý</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D.1</td>
+<td><code>worker.js</code> <strong>không</strong> đọc <code>.env</code>; chạy <code>node worker.js</code> sẽ không có biến môi trường</td>
+<td>Không có <code>require('dotenv')</code>; <code>start-worker.bat:21</code> dùng <code>node --env-file=.env</code></td>
+<td>Luôn dùng <code>start-worker.bat</code></td>
+</tr>
+<tr>
+<td>D.2</td>
+<td><code>projects.json</code> và <code>services.json</code> được đọc theo <strong>CWD</strong>, không theo <code>__dirname</code></td>
+<td><code>worker.js:32</code> (<code>readFileSync('projects.json')</code>), <code>worker.js:752</code></td>
+<td>Luôn <code>cd</code> vào root repo trước khi chạy</td>
+</tr>
+<tr>
+<td>D.3</td>
+<td><code>evidence.js</code> ghi vào <code>process.cwd()/evidence</code></td>
+<td><code>evidence.js:6</code></td>
+<td>Chạy worker ở root repo</td>
+</tr>
+<tr>
+<td>D.4</td>
+<td>Kiểm tra JQL thủ công (không cần chạy worker)</td>
+<td>Script <code>jql-check.js</code> ở <strong>mục D.19</strong></td>
+<td>Dùng khi debug &quot;0 bug&quot;</td>
+</tr>
+<tr>
+<td>D.5</td>
+<td><code>shop-web</code> không có script <code>test</code></td>
+<td><code>package.json</code> scripts = <code>dev</code>, <code>build</code></td>
+<td>Dùng <code>npm run build</code></td>
+</tr>
+<tr>
+<td>D.6</td>
+<td><code>shop-api</code> không có actuator → không có <code>/actuator/health</code></td>
+<td><code>pom.xml</code> không có <code>spring-boot-starter-actuator</code></td>
+<td>Health-check bằng endpoint thật hoặc check port</td>
+</tr>
+<tr>
+<td>D.7</td>
+<td>Trên Windows, <code>./mvnw</code> không chạy; dùng <code>mvnw.cmd</code> hoặc <code>mvn</code></td>
+<td><code>./mvnw.cmd</code> → <em>&quot;is not recognized&quot;</em>; <code>cmd /c mvnw.cmd</code> → OK</td>
+<td>Sửa <code>CLAUDE.md</code> ghi rõ <code>mvnw.cmd -B clean test</code></td>
+</tr>
+<tr>
+<td>D.8</td>
+<td>Worker chỉ tạo PR vào nhánh <code>prod</code>; <code>branches.target</code> được đọc nhưng không dùng để tạo PR</td>
+<td><code>worker.js:782</code> (gán), <code>worker.js:876-882</code> (dùng <code>prodBranch</code>)</td>
+<td>Không kỳ vọng PR vào <code>staging</code></td>
+</tr>
+<tr>
+<td>D.9</td>
+<td>Phase <code>after</code> của evidence <strong>chưa</strong> được worker điền (chỉ <code>before</code>)</td>
+<td><code>worker.js</code> chỉ gọi <code>saveEvidence(...,'before',...)</code> và <code>sendEvidenceToTelegram(...,'before',...)</code></td>
+<td>Chấp nhận hiện trạng; muốn đủ thì thêm bước ghi evidence sau fix</td>
+</tr>
+<tr>
+<td>D.10</td>
+<td>Nhánh <code>hotfix/&lt;KEY&gt;</code> bị <code>git branch -D</code> + <code>worktree add -B</code> mỗi lần → commit cũ trên remote bị ghi đè (<code>push --force</code>)</td>
+<td><code>worker.js:813-816</code>, <code>worker.js:872</code></td>
+<td>Cân nhắc đổi sang <code>hotfix/&lt;KEY&gt;-&lt;timestamp&gt;</code> nếu cần lịch sử</td>
+</tr>
+<tr>
+<td>D.11</td>
+<td><code>CLAUDE.md</code> mô tả path <code>services/api</code>, <code>services/web</code> nhưng code nằm ở <code>services/shop-api</code>, <code>services/shop-web</code></td>
+<td><code>CLAUDE.md:17-18,28,33,46</code> vs <code>services.json</code></td>
+<td>Sửa theo Phụ lục E — <strong>quan trọng</strong>, AI sửa nhầm path sẽ hỏng</td>
+</tr>
+<tr>
+<td>D.12</td>
+<td><code>services/shop-web/.env</code> đang được <strong>commit</strong> trong repo <code>shop-web</code> (chứa DSN)</td>
+<td><code>git -C services/shop-web ls-files</code> → có <code>.env</code></td>
+<td><code>git rm --cached .env</code> + thêm <code>.env</code> vào <code>.gitignore</code> của repo web (Phụ lục F)</td>
+</tr>
+<tr>
+<td>D.13</td>
+<td><code>webhook_bridge.js</code> cần <code>express</code> nhưng repo root <strong>không có</strong> <code>package.json</code>/<code>node_modules</code></td>
+<td><code>require('express')</code> → <code>MODULE_NOT_FOUND</code></td>
+<td><code>npm install express</code> (tạo <code>package.json</code> ở root) hoặc bỏ bridge, dùng Jira Automation</td>
+</tr>
+<tr>
+<td>D.14</td>
+<td>Worker <strong>KHÔNG</strong> gửi Telegram khi job fail — chỉ gắn nhãn <code>auto-fix-failed</code> + comment Jira</td>
+<td><code>worker.js:681-686</code> (<code>processBugWrapper</code>), <code>markJiraIssueFailed</code> (<code>:701-717</code>) không gọi Telegram</td>
+<td>Theo dõi bằng nhãn Jira / log terminal, không chờ tin Telegram</td>
+</tr>
+<tr>
+<td>D.15</td>
+<td>Bước kiểm tra &quot;repro phải có evidence&quot; <strong>luôn pass</strong> (worker tự tạo file evidence trước rồi kiểm tra chính nó)</td>
+<td><code>worker.js:842-844</code> tạo file → <code>:856-859</code> kiểm tra cùng thư mục đó</td>
+<td>Coi là known gap; chỉ <code>[AI_STOP] REPRO_FAILED</code> mới thực sự dừng (<code>:851-854</code>)</td>
+</tr>
+<tr>
+<td>D.16</td>
+<td>Jira <strong>description</strong> không được truyền cho Claude — chỉ <code>summary</code></td>
+<td><code>worker.js:849</code> (<code>Bug: ${summary}</code>); description chỉ nằm trong file evidence ngoài worktree</td>
+<td>Nhét toàn bộ thông tin lỗi vào <strong>Summary</strong> của ticket</td>
+</tr>
+<tr>
+<td>D.17</td>
+<td>Worker <strong>có</strong> tự commit khi AI quên commit, với message <code>fix(auto): catch uncommitted changes after ...</code> — <strong>không</strong> theo convention <code>fix(api):</code>/<code>fix(web):</code></td>
+<td><code>worker.js:598</code> (README mục B nói &quot;worker không tự commit&quot; — sai)</td>
+<td>Sau khi có PR, kiểm tra message commit; sửa tay nếu sai convention</td>
+</tr>
+<tr>
+<td>D.18</td>
+<td><code>webhook_bridge.js</code> suy ra <code>service:*</code> từ slug project GlitchTip: <code>-fe</code> → web, <code>-be</code> → api, <strong>mặc định <code>service:api</code></strong></td>
+<td><code>webhook_bridge.js:24-30</code></td>
+<td>Đặt tên project rõ ràng (VD <code>SHOP-be</code>, <code>SHOP-fe</code>). Nên <strong>dùng Jira Automation</strong> (nhãn cứng) thay vì bridge</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="d19--kiểm-tra-jql-khi-worker-báo-tìm-thấy-0-bug"><a class="anchor" href="#d19--kiểm-tra-jql-khi-worker-báo-tìm-thấy-0-bug" aria-hidden="true">#</a>D.19 — Kiểm tra JQL (khi worker báo &quot;Tìm thấy 0 bug&quot;)</h3>
+<p>Tạo file <code>jql-check.js</code> ở thư mục gốc repo worker:</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="nx">PROJECT_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;SHOP&#39;</span><span class="p">;</span><span class="w">   </span><span class="c1">// đổi thành CMS nếu cần</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">auth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;Basic &#39;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">Buffer</span><span class="p">.</span><span class="kr">from</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">process</span><span class="p">.</span><span class="nx">env</span><span class="p">.</span><span class="nx">JIRA_EMAIL</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;:&#39;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">process</span><span class="p">.</span><span class="nx">env</span><span class="p">.</span><span class="nx">JIRA_TOKEN</span>
+<span class="p">).</span><span class="nx">toString</span><span class="p">(</span><span class="s1">&#39;base64&#39;</span><span class="p">);</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">jql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="sb">`project = </span><span class="si">${</span><span class="nx">PROJECT_KEY</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+<span class="w">  </span><span class="s1">&#39;issuetype = Bug&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="s1">&#39;status IN (&quot;To Do&quot;, &quot;Selected for Development&quot;, &quot;Backlog&quot;)&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="s1">&#39;(labels = &quot;auto-fix&quot; OR summary ~ &quot;AUTO-BUG&quot;)&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="s1">&#39;labels != &quot;auto-fix-processing&quot;&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="s1">&#39;labels != &quot;auto-fix-done&quot;&#39;</span><span class="p">,</span>
+<span class="w">  </span><span class="s1">&#39;labels != &quot;auto-fix-failed&quot;&#39;</span><span class="p">,</span>
+<span class="p">].</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39; AND &#39;</span><span class="p">);</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sb">`https://</span><span class="si">${</span><span class="nx">process</span><span class="p">.</span><span class="nx">env</span><span class="p">.</span><span class="nx">JIRA_DOMAIN</span><span class="si">}</span><span class="sb">/rest/api/3/search/jql`</span>
+<span class="w">  </span><span class="o">+</span><span class="w"> </span><span class="sb">`?jql=</span><span class="si">${</span><span class="nb">encodeURIComponent</span><span class="p">(</span><span class="nx">jql</span><span class="p">)</span><span class="si">}</span><span class="sb">`</span>
+<span class="w">  </span><span class="o">+</span><span class="w"> </span><span class="s1">&#39;&amp;fields=summary,labels,status&#39;</span><span class="p">;</span>
+
+<span class="nx">fetch</span><span class="p">(</span><span class="nx">url</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Authorization</span><span class="o">:</span><span class="w"> </span><span class="nx">auth</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">})</span>
+<span class="w">  </span><span class="p">.</span><span class="nx">then</span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">json</span><span class="p">())</span>
+<span class="w">  </span><span class="p">.</span><span class="nx">then</span><span class="p">(</span><span class="nx">j</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nb">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">j</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="mf">1</span><span class="p">)));</span>
+</pre></div>
+
+<p>Chạy:</p>
+<pre class="highlight"><code>node --env-file=.env jql-check.js
+</code></pre>
+<p>Nếu <code>issues</code> rỗng → xem lại: thiếu nhãn <code>auto-fix</code>/<code>service:*</code>, sai trạng thái, hoặc ticket đã có nhãn <code>auto-fix-done</code>/<code>-failed</code> (xem D.15).</p>
+<hr />
+<h2 id="r-phụ-lục-e--sửa-claudemd-cho-khớp-path-thật"><a class="anchor" href="#r-phụ-lục-e--sửa-claudemd-cho-khớp-path-thật" aria-hidden="true">#</a>R. Phụ lục E — Sửa <code>CLAUDE.md</code> cho khớp path thật</h2>
+<p><code>CLAUDE.md</code> được worker <strong>copy vào worktree</strong> trước khi gọi Claude (<code>worker.js:818-826</code>) → AI đọc file này để biết sửa ở đâu. Hiện nó trỏ tới path không tồn tại:</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Dòng</th>
+<th>Đang ghi</th>
+<th>Sửa thành</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>17</td>
+<td><code>services/api</code>, <code>services/web</code></td>
+<td><code>services/shop-api</code>, <code>services/shop-web</code></td>
+</tr>
+<tr>
+<td>18</td>
+<td><code>services-2/api</code>, <code>services-2/web</code></td>
+<td><code>services-2/cms-api</code>, <code>services-2/cms-web</code></td>
+</tr>
+<tr>
+<td>28</td>
+<td><code>services/api/src/main/java/</code>, <code>services-2/api/src/main/java/</code></td>
+<td><code>services/shop-api/src/main/java/</code>, <code>services-2/cms-api/src/main/java/</code></td>
+</tr>
+<tr>
+<td>33</td>
+<td><code>services/web/src/</code>, <code>services-2/web/src/</code></td>
+<td><code>services/shop-web/src/</code>, <code>services-2/cms-web/src/</code></td>
+</tr>
+<tr>
+<td>46</td>
+<td><code>git add services/api/src/...</code></td>
+<td><code>git add services/shop-api/src/...</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Thêm vào phần Services Map các dòng ghi chú sau:</p>
+<div class="highlight"><pre><span></span><span class="k">&gt; </span><span class="ge">**Lưu ý Windows:** dùng `mvnw.cmd -B clean test` (hoặc `mvn -B clean test`) — `./mvnw` không chạy được trên Windows.</span>
+<span class="k">&gt; </span><span class="ge">**Lưu ý frontend:** `shop-web` không có script `test`; dùng `npm run build` để verify.</span>
+<span class="k">&gt; </span><span class="ge">**Commit convention:** `fix(api): ...` cho service `api`, `fix(web): ...` cho service `web`. TUYỆT ĐỐI không dùng prefix khác.</span>
+<span class="k">&gt; </span><span class="ge">**Evidence:** lưu bằng chứng repro vào `evidence/{JIRA_KEY}/before/` (thư mục này nằm trong repo service đang làm việc).</span>
+</pre></div>
+
+<p>Cũng nên sửa tên project trong Services Map cho khớp <code>projects.json</code> (<code>SHOP</code> / <code>CMS</code> thay cho <code>KANBAN</code> / <code>ECOM</code>).</p>
+<blockquote>
+<p>⚠️ Worker có thể tự commit phần AI quên commit với message <code>fix(auto): catch uncommitted changes after ...</code> (<code>worker.js:598</code>) — vi phạm convention trên. Sau khi có PR, <strong>kiểm tra message commit</strong> và sửa tay nếu cần.</p>
+</blockquote>
+<hr />
+<h2 id="s-phụ-lục-f--bảo-mật--rotate-secret"><a class="anchor" href="#s-phụ-lục-f--bảo-mật--rotate-secret" aria-hidden="true">#</a>S. Phụ lục F — Bảo mật &amp; rotate secret</h2>
+<h3 id="s1-secret-đang-tồn-tại-trong-hệ-thống"><a class="anchor" href="#s1-secret-đang-tồn-tại-trong-hệ-thống" aria-hidden="true">#</a>S.1. Secret đang tồn tại trong hệ thống</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Secret</th>
+<th>Nơi đang nằm</th>
+<th>Rủi ro</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>JIRA_TOKEN</code></td>
+<td><code>.env</code> (gitignored ✅)</td>
+<td>Lộ nếu chia sẻ file <code>.env</code></td>
+</tr>
+<tr>
+<td><code>GIT_TOKEN</code></td>
+<td><code>.env</code> + <strong>URL remote của 4 service repo</strong></td>
+<td>Lộ nếu push log/<code>git remote -v</code> bị chia sẻ</td>
+</tr>
+<tr>
+<td><code>TELEGRAM_BOT_TOKEN</code></td>
+<td><code>.env</code></td>
+<td>Lộ nếu chia sẻ file <code>.env</code></td>
+</tr>
+<tr>
+<td><strong>DSN GlitchTip</strong></td>
+<td><code>services/shop-web/.env</code> (<strong>đang commit</strong> ❌), <code>main.jsx</code> fallback hardcode ❌, <code>application.properties</code> của 2 api ❌</td>
+<td>DSN lộ → kẻ xấu gửi event giả vào project của bạn</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="s2-việc-cần-làm-khuyến-nghị"><a class="anchor" href="#s2-việc-cần-làm-khuyến-nghị" aria-hidden="true">#</a>S.2. Việc cần làm (khuyến nghị)</h3>
+<ol>
+<li><strong>DSN không phải secret nghiêm ngặt, nhưng nên hạn chế.</strong> Với GlitchTip mới, dùng <strong>DSN key</strong> riêng cho từng project và thu hồi (rotate) được.</li>
+<li>Gỡ DSN khỏi code:
+<ul>
+<li><code>services/shop-web/src/main.jsx</code>: xoá phần <code>|| &quot;http://...@...:8000/2&quot;</code> → chỉ còn <code>import.meta.env.VITE_SENTRY_DSN</code>.</li>
+<li><code>services-2/cms-web/src/main.jsx</code>: tương tự.</li>
+<li><code>services/shop-api/src/main/resources/application.properties</code> và <code>services-2/cms-api/...</code>: chuyển sang biến môi trường, dòng <code>sentry.dsn=${SENTRY_DSN}</code>, và truyền khi chạy: <code>SENTRY_DSN=&lt;DSN&gt; java -jar ...</code></li>
+</ul>
+</li>
+<li>Gỡ <code>.env</code> khỏi tracking của repo <code>shop-web</code>:</li>
+</ol>
+<pre class="highlight"><code>git -C services\shop-web rm --cached .env
+echo .env &gt;&gt; services\shop-web\.gitignore
+git -C services\shop-web commit -m &quot;chore: untrack .env (contains Sentry DSN)&quot;
+</code></pre>
+<ol start="4">
+<li>Nếu <strong>tài liệu này</strong> (hoặc <code>.env</code>) đã bị chia sẻ ra ngoài → <strong>rotate ngay</strong>:
+<ul>
+<li>Jira: <a href="https://id.atlassian.com/manage-profile/security/api-tokens">https://id.atlassian.com/manage-profile/security/api-tokens</a> → Revoke token cũ → tạo token mới → cập nhật <code>.env</code>.</li>
+<li>GitHub: <a href="https://github.com/settings/tokens">https://github.com/settings/tokens</a> → Revoke PAT cũ → tạo PAT mới → cập nhật <code>.env</code> <strong>và</strong> URL remote của 4 repo.</li>
+<li>Telegram: <code>/revoke</code> với <code>@BotFather</code> → nhận token mới → cập nhật <code>.env</code>.</li>
+<li>GlitchTip: vào project → <strong>Client Keys</strong> → revoke key → tạo key mới → cập nhật DSN ở 4 service.</li>
+</ul>
+</li>
+</ol>
+<h3 id="s3-quy-tắc-chung"><a class="anchor" href="#s3-quy-tắc-chung" aria-hidden="true">#</a>S.3. Quy tắc chung</h3>
+<ul>
+<li>Không bao giờ commit <code>.env</code>, DSN hay token vào repo worker.</li>
+<li>Token nằm trong URL remote của repo service → khi gửi log cho người khác, phải che <code>https://&lt;TOKEN&gt;@github.com/...</code> → <code>https://***@github.com/...</code>.</li>
+<li><code>worker.js</code> in remote URL khi push (stdio <code>inherit</code>) → log worker có thể chứa token. Xem log worker như dữ liệu nhạy cảm.</li>
+</ul>
+<hr />
+<h2 id="checklist-hoàn-tất"><a class="anchor" href="#checklist-hoàn-tất" aria-hidden="true">#</a>Checklist hoàn tất</h2>
+<ul>
+<li>[ ] <strong>B.0 <code>claude -p &quot;ping&quot;</code> phải trả lời được</strong> (bắt buộc — nếu không, mọi job auto-fix đều fail) · B.1 Node ≥ 20.6 · B.2 Git · B.3 xác nhận lần 2 · B.4 Docker (nếu tự dựng GlitchTip) · B.5 Java 21 + Maven</li>
+<li>[ ] C Clone repo worker</li>
+<li>[ ] <strong>D Clone 4 repo service</strong> + tạo nhánh <code>staging</code> + xác minh branch</li>
+<li>[ ] E Tạo <code>.env</code> (Jira token, Git token) + E.3 nạp env OK + E.4 test token OK</li>
+<li>[ ] F <code>projects.json</code> (SHOP/CMS) + <code>services.json</code> x2 (gitRepo, branches dev/prod)</li>
+<li>[ ] <strong>G Telegram</strong>: @BotFather → token · chat id (nhóm) · user id (@userinfobot) · <code>getMe</code> OK · <code>sendMessage</code> OK</li>
+<li>[ ] H GlitchTip Docker: compose up + migrate + tạo 4 project + lấy 4 DSN</li>
+<li>[ ] I Gắn DSN vào 4 service + kiểm tra issue xuất hiện trên GlitchTip</li>
+<li>[ ] J Jira: Automation Rule (2 rule/project) với nhãn <code>auto-fix</code> + <code>service:*</code></li>
+<li>[ ] K Alert Webhook GlitchTip → Jira</li>
+<li>[ ] L Chạy <code>start-worker.bat</code> (CMD riêng) — log &quot;sẵn sàng&quot; + quét 2 project</li>
+<li>[ ] M Test E2E: tạo ticket thử → dấu hiệu repro/fix/PR → duyệt Merge trên Telegram</li>
+<li>[ ] R Sửa <code>CLAUDE.md</code> path (khuyến nghị mạnh)</li>
+<li>[ ] S Dọn DSN/token khỏi code + rotate nếu đã lộ</li>
+</ul>
+<hr />
+<h2 id="phụ-lục-g--bản-html-để-xem-offline--in"><a class="anchor" href="#phụ-lục-g--bản-html-để-xem-offline--in" aria-hidden="true">#</a>Phụ lục G — Bản HTML để xem offline / in</h2>
+<p>Tài liệu này còn có bản HTML tự chứa (CSS + syntax highlight nhúng thẳng, <strong>không cần mạng</strong>):</p>
+<ul>
+<li><code>SETUP_GUIDE.html</code> — mở bằng trình duyệt, có sidebar mục lục bám theo heading đang xem, tự bật/tắt dark mode theo hệ điều hành, hỗ trợ in ra PDF.</li>
+</ul>
+<p>Sinh lại sau khi sửa <code>SETUP_GUIDE.md</code>:</p>
+<pre class="highlight"><code>pip install markdown-it-py pygments
+python tools\build-doc-html.py
+</code></pre>
+<p>Script tự đọc <code>SETUP_GUIDE.md</code>, tạo <code>SETUP_GUIDE.html</code>, và có thể dùng lại cho file markdown khác:</p>
+<pre class="highlight"><code>python tools\build-doc-html.py duong-dan\file.md duong-dan\file.html
+</code></pre>
+
+</main>
+</div>
+</div>
+
+<footer class="page">
+  <div class="wrap">
+    Auto-Fix Worker — Huong dan setup GlitchTip, Jira, Telegram va Worker.
+  </div>
+</footer>
+
+<script>
+
+// Smooth-scroll + highlight TOC item theo heading dang xem
+(function () {
+  var links = Array.prototype.slice.call(
+    document.querySelectorAll('nav.toc a[href^="#"]')
+  );
+  var map = {};
+  var targets = [];
+  links.forEach(function (a) {
+    var id = decodeURIComponent(a.getAttribute('href').slice(1));
+    var el = document.getElementById(id);
+    if (!el) return;
+    map[id] = a;
+    targets.push(el);
+  });
+
+  function clear() {
+    links.forEach(function (a) { a.classList.remove('active'); });
+  }
+
+  if ('IntersectionObserver' in window && targets.length) {
+    var visible = new Set();
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) visible.add(e.target.id);
+        else visible.delete(e.target.id);
+      });
+      var first = null;
+      targets.forEach(function (t) { if (!first && visible.has(t.id)) first = t.id; });
+      clear();
+      if (first && map[first]) map[first].classList.add('active');
+    }, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    targets.forEach(function (t) { io.observe(t); });
+  }
+
+  // Nut "Ve dau trang"
+  var top = document.createElement('a');
+  top.href = '#';
+  top.className = 'anchor';
+  top.title = 'Ve dau trang';
+  top.textContent = '\u2191';
+  top.style.cssText = 'position:fixed;right:22px;bottom:22px;z-index:99;' +
+    'background:var(--surface);border:1px solid var(--border);border-radius:50%;' +
+    'width:38px;height:38px;display:flex;align-items:center;justify-content:center;' +
+    'font-size:18px;box-shadow:0 2px 8px rgba(0,0,0,.18)';
+  top.addEventListener('click', function (e) {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  document.body.appendChild(top);
+})();
+
+</script>
+</body>
+</html>
