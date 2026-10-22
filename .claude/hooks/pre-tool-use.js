@@ -13,8 +13,10 @@ const dangerousPatterns = [
 ];
 
 function block(msg) {
+  // Claude Code CHẶN tool khi hook trả exit code 2 (blocking error).
+  // exit code 1 chỉ là "non-blocking error" → tool vẫn chạy, guardrail vô hiệu.
   console.error('[HOOK ERROR] ' + msg + ' Blocked.');
-  process.exit(1);
+  process.exit(2);
 }
 
 // Đọc stdin (JSON từ Claude Code). Windows-safe: không treo khi không có pipe.

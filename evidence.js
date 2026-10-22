@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const EVIDENCE_DIR = path.join(process.cwd(), 'evidence');
+// Thư mục evidence nằm cạnh worker.js (không phụ thuộc CWD).
+const EVIDENCE_DIR = path.join(__dirname, 'evidence');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -27,6 +28,42 @@ function saveEvidence(jiraKey, phase, filename, content) {
     const filepath = path.join(targetDir, filename);
     fs.writeFileSync(filepath, content);
     return filepath;
+}
+
+/**
+ * Thu thập evidence do Claude Code tạo trong git worktree của service repo
+ * vào thư mục evidence của worker.
+ *
+ * Claude chạy với cwd = worktree nên nó lưu bằng chứng vào
+ * <worktree>/evidence/<JIRA_KEY>/before/. Worker phải copy ngược lại
+ * thì mới đọc được — nếu không, check "repro có evidence" luôn pass
+ * (vì worker tự tạo file riêng) và bằng chứng của AI bị bỏ rơi.
+ */
+function collectFromWorktree(worktreeDir, jiraKey, phase) {
+    const srcDir = path.join(worktreeDir, 'evidence', jiraKey, phase);
+    if (!fs.existsSync(srcDir)) return { copied: 0, files: [] };
+
+    const destDir = path.join(EVIDENCE_DIR, jiraKey, phase);
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const copied = [];
+    for (const name of fs.readdirSync(srcDir)) {
+        const src = path.join(srcDir, name);
+        if (!fs.statSync(src).isFile()) continue;
+        const dest = path.join(destDir, name);
+        fs.copyFileSync(src, dest);
+        copied.push(name);
+    }
+    return { copied: copied.length, files: copied };
+}
+
+/**
+ * Liệt kê file evidence của 1 phase (dùng để kiểm tra repro có bằng chứng thật)
+ */
+function listEvidenceFiles(jiraKey, phase) {
+    const targetDir = path.join(EVIDENCE_DIR, jiraKey, phase);
+    if (!fs.existsSync(targetDir)) return [];
+    return fs.readdirSync(targetDir).filter(f => fs.statSync(path.join(targetDir, f)).isFile());
 }
 
 /**
@@ -75,7 +112,10 @@ async function sendEvidenceToTelegram(jiraKey, phase, message, keyboard = null) 
 }
 
 module.exports = {
+    EVIDENCE_DIR,
     ensureEvidenceDir,
     saveEvidence,
+    collectFromWorktree,
+    listEvidenceFiles,
     sendEvidenceToTelegram
 };

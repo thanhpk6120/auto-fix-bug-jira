@@ -1,7 +1,62 @@
 const { execSync, spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+// Tự động nạp file .env từ thư mục gốc của worker (chạy an toàn cả khi không dùng cờ --env-file)
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+    try {
+        const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+                const eqIdx = trimmed.indexOf('=');
+                const k = trimmed.slice(0, eqIdx).trim();
+                const v = trimmed.slice(eqIdx + 1).trim();
+                if (!process.env[k]) process.env[k] = v;
+            }
+        }
+    } catch (e) {
+        console.warn(`[!] Không đọc được file .env: ${e.message}`);
+    }
+}
+// File settings do WORKER sở hữu, nằm ngoài repo service.
+// Claude Code nạp chúng qua --settings / --append-system-prompt → KHÔNG cần ghi
+// file nào vào repo của khách (không để lại CLAUDE.md / .claude/ lạ trong PR).
+const WORKER_RULES_FILE = path.join(__dirname, 'CLAUDE.md');
+const WORKER_HOOK_FILE = path.join(__dirname, '.claude', 'hooks', 'pre-tool-use.js');
+const WORKER_SETTINGS_FILE = path.join(__dirname, '.claude', 'settings.generated.json');
+
+// Sinh settings.json với đường dẫn hook TUYỆT ĐỐI (hook chạy ở cwd của Claude = repo service
+// của repo khách nên đường dẫn tương đối sẽ không tìm thấy). Ghi 1 lần lúc khởi động.
+function ensureWorkerSettings() {
+    if (!fs.existsSync(WORKER_HOOK_FILE)) return null;
+    const settings = {
+        hooks: {
+            PreToolUse: [
+                { matcher: '*', hooks: [{ type: 'command', command: `node "${WORKER_HOOK_FILE}"` }] }
+            ]
+        }
+    };
+    try {
+        fs.writeFileSync(WORKER_SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n');
+        return WORKER_SETTINGS_FILE;
+    } catch (e) {
+        console.warn(`[!] Không ghi được ${WORKER_SETTINGS_FILE}: ${e.message}`);
+        return null;
+    }
+}
 
 function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false) {
     const args = ['-p', prompt, '--model', CLAUDE_MODEL, '--dangerously-skip-permissions'];
+    // Guardrail hook: nạp qua --settings (đường dẫn tuyệt đối, file của worker).
+    if (!fs.existsSync(WORKER_SETTINGS_FILE)) ensureWorkerSettings();
+    if (fs.existsSync(WORKER_SETTINGS_FILE)) {
+        args.push('--settings', WORKER_SETTINGS_FILE);
+    }
+    // Rules khoanh vùng bug: nạp như system prompt bổ sung.
+    if (fs.existsSync(WORKER_RULES_FILE)) {
+        args.push('--append-system-prompt', fs.readFileSync(WORKER_RULES_FILE, 'utf8'));
+    }
     const options = {
         cwd,
         timeout,
@@ -18,32 +73,56 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
     }
     return res.stdout ? res.stdout.toString() : '';
 }
-const fs = require('fs');
-const path = require('path');
 
 // --- SINGLETON MASTER WORKER CONFIG ---
 const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '2', 10);
 let activeJobs = 0;
+const activeServiceLocks = new Set(); // Khoá theo "projectKey:targetService" tránh 2 job mutate cùng repo
 let isScanning = false;
+// Thư mục gốc của worker: nơi chứa projects.json, .env, evidence/, pending-prs.json.
+// Dùng __dirname để worker KHÔNG phụ thuộc CWD — chạy được từ bất kỳ thư mục nào.
+const WORKER_ROOT = __dirname;
 
 // Đọc danh sách projects
 let projectsConfig = [];
 try {
-    const rawData = fs.readFileSync('projects.json', 'utf8');
+    const rawData = fs.readFileSync(path.join(WORKER_ROOT, 'projects.json'), 'utf8');
     projectsConfig = JSON.parse(rawData).projects || [];
 } catch (err) {}
 
+// Chuẩn hoá đường dẫn thư mục project.
+// - project.path là đường dẫn TƯƠNG ĐỐI so với project.root (mặc định root = WORKER_ROOT).
+// - project.path là đường dẫn TUYỆT ĐỐI (C:\... hoặc D:/...) thì dùng nguyên xi.
+// Nhờ vậy worker dùng được cho dự án có service nằm ngoài thư mục worker.
+function resolveProjectDir(project) {
+    const p = project || {};
+    if (p.path && path.isAbsolute(p.path)) return p.path;
+    const root = p.root
+        ? (path.isAbsolute(p.root) ? p.root : path.resolve(WORKER_ROOT, p.root))
+        : WORKER_ROOT;
+    return path.resolve(root, p.path || '.');
+}
+
+// Chuẩn hoá đường dẫn thư mục service trong services.json.
+// - service.path là đường dẫn TUYỆT ĐỐI thì dùng nguyên xi.
+// - ngược lại là TƯƠNG ĐỐI so với thư mục project.
+function resolveServiceDir(projectDir, serviceConfig) {
+    const sp = (serviceConfig && serviceConfig.path) || '';
+    if (sp && path.isAbsolute(sp)) return sp;
+    return path.resolve(projectDir, sp || '.');
+}
+
 function validateConfigs() {
     for (const project of projectsConfig) {
-        const projectPath = project.path || '.';
+        const projectPath = resolveProjectDir(project);
         const servicesFile = path.join(projectPath, 'services.json');
         if (!fs.existsSync(servicesFile)) {
             console.warn(`[CANH BAO] Project ${project.projectKey} thiếu services.json tại ${servicesFile}. Tự động copy từ services.json.example...`);
             try {
-                fs.copyFileSync('services.json.example', servicesFile);
+                fs.copyFileSync(path.join(WORKER_ROOT, 'services.json.example'), servicesFile);
                 console.log(`[+] Đã tạo ${servicesFile}. Vui lòng cấu hình lại các trường.`);
             } catch (err) {
-                console.error(`[LOI] Không thể copy services.json.example sang ${servicesFile}:`, err.message);
+                console.error(`[LOI] Không thể copy services.json.example sang ${servicesFile}: ${err.message}`);
             }
         } else {
             try {
@@ -64,9 +143,14 @@ validateConfigs();
 
 
 // --- CẤU HÌNH BIẾN MÔI TRƯỜNG (CÔ LẬP THEO DỰ ÁN) ---
-const JIRA_DOMAIN = process.env.JIRA_DOMAIN;
-const JIRA_EMAIL = process.env.JIRA_EMAIL;
-const JIRA_TOKEN = process.env.JIRA_TOKEN;
+const JIRA_DOMAIN = (process.env.JIRA_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+const JIRA_EMAIL = (process.env.JIRA_EMAIL || '').trim();
+const JIRA_TOKEN = (process.env.JIRA_TOKEN || '').trim();
+
+// Tự động nhận diện Jira Cloud (atlassian.net) vs Jira Server / Data Center tự host
+const isJiraCloud = JIRA_DOMAIN.toLowerCase().includes('atlassian.net');
+const JIRA_API_VER = isJiraCloud ? '3' : '2';
+const JIRA_SEARCH_PATH = isJiraCloud ? 'search/jql' : 'search';
 
 
 // --- GIT REPO / HOST HELPERS ---
@@ -99,7 +183,16 @@ function buildRemoteUrl(gitRepo) {
     const cleanRepo = normalizeRepoPath(gitRepo);
     if (!cleanRepo) return 'origin';
     const host = normalizeGitHost(GIT_HOST);
-    if (GIT_TOKEN) return `https://${GIT_TOKEN}@${host}/${cleanRepo}.git`;
+    const rawHost = (process.env.GIT_HOST || '').toLowerCase();
+    const isLocalOrHttp = host.startsWith('10.') || host.startsWith('192.168.') || host.includes(':') || rawHost.startsWith('http://');
+    const scheme = isLocalOrHttp ? 'http' : 'https';
+    if (GIT_TOKEN) {
+        if (isGitHubHost()) {
+            return `https://${GIT_TOKEN}@${host}/${cleanRepo}.git`;
+        }
+        // GitLab / Gitea tự host qua HTTP/HTTPS: dùng oauth2:<token>
+        return `${scheme}://oauth2:${GIT_TOKEN}@${host}/${cleanRepo}.git`;
+    }
     return 'origin';
 }
 
@@ -122,6 +215,9 @@ const GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || 'AI Bug Fixer';
 const GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || 'ai-bot@local.dev';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-3-7-sonnet';
 const CLAUDE_TIMEOUT = parseInt(process.env.CLAUDE_TIMEOUT_MS || '300000', 10);
+// Thời gian chờ pipeline CI/CD kết thúc (poll).
+const CI_POLL_MAX = parseInt(process.env.CI_POLL_MAX || '20', 10);
+const CI_POLL_INTERVAL_MS = parseInt(process.env.CI_POLL_INTERVAL_MS || '15000', 10);
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -134,13 +230,47 @@ const evidenceHelper = require('./evidence.js');
 
 
 
-const getReproPrompt = () => "Reproduce the bug. Priority: 1. Read Jira description for domain/URL and error details. 2. If no URL or access fails, inspect source code and test locally. 3. SAVE EVIDENCE logs to 'evidence/{JIRA_KEY}/before'. IF CANNOT REPRODUCE, STOP AND PRINT: [AI_STOP] REPRO_FAILED";
+const getReproPrompt = () => "Reproduce the bug. Priority: 1. Read Jira description for domain/URL and error details. 2. If no URL or access fails, inspect source code and test locally. 3. SAVE EVIDENCE logs into the directory 'evidence/{JIRA_KEY}/before' (create it; it is relative to your current working directory, which is the service repo). The evidence MUST be real files produced by the reproduction (stack trace, log output, failing test output) - an empty or placeholder file does not count. 4. IF CANNOT REPRODUCE, STOP AND PRINT: [AI_STOP] REPRO_FAILED";
 
-if (!JIRA_DOMAIN || !JIRA_EMAIL || !JIRA_TOKEN) {
-    console.warn("⚠️ Thiếu cấu hình Jira. Bot vẫn chạy nhưng tính năng auto-fix sẽ báo lỗi.");
+// Thiếu cấu hình bắt buộc → phải chết NGAY lúc khởi động.
+// Trước đây chỉ console.warn rồi vẫn chạy: Jira trả HTTP 200 + issues rỗng khi token sai
+// → worker log "Tìm thấy 0 bug" mỗi 15s, người dùng tưởng hệ thống ổn.
+// GIT_TOKEN rỗng còn tệ hơn: createGitHubPR trả về số PR giả → báo "đã tạo PR" cho PR không tồn tại.
+const MISSING_CONFIG = [];
+if (!JIRA_DOMAIN) MISSING_CONFIG.push('JIRA_DOMAIN');
+if (!JIRA_EMAIL) MISSING_CONFIG.push('JIRA_EMAIL');
+if (!JIRA_TOKEN) MISSING_CONFIG.push('JIRA_TOKEN');
+if (!GIT_TOKEN) MISSING_CONFIG.push('GIT_TOKEN');
+if (MISSING_CONFIG.length > 0) {
+    console.error(`[LOI] Thiếu cấu hình bắt buộc: ${MISSING_CONFIG.join(', ')}`);
+    console.error('[LOI] Điền các biến này vào file .env (xem .env.example) rồi khởi động lại worker.');
+    process.exit(1);
 }
 
-const authHeader = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString('base64');
+// Auth: Jira Server PAT dùng Bearer, Jira Cloud dùng Basic base64(email:token)
+const authHeader = (JIRA_TOKEN.startsWith('Bearer ') || !isJiraCloud)
+    ? (JIRA_TOKEN.startsWith('Bearer ') ? JIRA_TOKEN : `Bearer ${JIRA_TOKEN}`)
+    : 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString('base64');
+
+// Xác thực token Jira lúc khởi động. /rest/api/3/myself trả 401 khi token sai/rỗng,
+// còn /search/jql vẫn trả 200 với issues rỗng → không kiểm tra thì không bao giờ biết mình sai.
+async function validateJiraAuth() {
+    try {
+        const res = await fetch(`https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/myself`, {
+            headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
+        });
+        if (!res.ok) {
+            console.error(`[LOI] Xác thực Jira thất bại: HTTP ${res.status}. Kiểm tra JIRA_DOMAIN / JIRA_EMAIL / JIRA_TOKEN trong .env.`);
+            console.error('[LOI] Worker dừng. Nếu chạy tiếp, mỗi vòng 15s sẽ log "0 bug" giả.');
+            process.exit(1);
+        }
+        const me = await res.json();
+        console.log(`[+] Xác thực Jira thành công: ${me.emailAddress || me.displayName || JIRA_EMAIL}`);
+    } catch (e) {
+        console.error(`[LOI] Không kết nối được Jira (${JIRA_DOMAIN}): ${e.message}`);
+        process.exit(1);
+    }
+}
 
 function getServiceInfoForPR(prNumber, branchName) {
     const localList = readLocalPendingPRs();
@@ -150,15 +280,19 @@ function getServiceInfoForPR(prNumber, branchName) {
             gitRepo: pr.gitRepo,
             prodBranch: pr.prodBranch,
             devBranch: pr.devBranch || 'master',
-            targetServiceDir: pr.targetServiceDir || process.cwd()
+            // Nhánh PR đang mở (staging nếu có gate, nếu không thì prod).
+            targetBranch: pr.targetBranch || pr.prodBranch,
+            issueKey: pr.issueKey || '',
+            summary: pr.summary || '',
+            targetServiceDir: pr.targetServiceDir || WORKER_ROOT
         };
     }
 
     const projectKeyMatch = (branchName || (pr && pr.branch) || '').match(/^hotfix\/([A-Z]+)-\d+/);
     const projectKey = projectKeyMatch ? projectKeyMatch[1] : '';
     const pConfig = projectsConfig.find(p => p.projectKey === projectKey);
-    const projectPath = (pConfig && pConfig.path && pConfig.path !== '.') ? pConfig.path : 'services';
-    const servicesJsonPath = path.join(process.cwd(), projectPath, 'services.json');
+    const projectDir = pConfig ? resolveProjectDir(pConfig) : path.join(WORKER_ROOT, 'services');
+    const servicesJsonPath = path.join(projectDir, 'services.json');
 
     if (fs.existsSync(servicesJsonPath)) {
         try {
@@ -170,7 +304,10 @@ function getServiceInfoForPR(prNumber, branchName) {
                     gitRepo: svc.gitRepo,
                     prodBranch: svc.branches.prod || 'master',
                     devBranch: svc.branches.dev || 'master',
-                    targetServiceDir: path.join(process.cwd(), projectPath, svc.path || '')
+                    targetBranch: svc.branches.target || svc.branches.prod || 'master',
+                    issueKey: (pr && pr.issueKey) || '',
+                    summary: (pr && pr.summary) || '',
+                    targetServiceDir: resolveServiceDir(projectDir, svc)
                 };
             }
         } catch (e) {}
@@ -181,7 +318,10 @@ function getServiceInfoForPR(prNumber, branchName) {
             gitRepo: pr.gitRepo,
             prodBranch: pr.prodBranch || 'master',
             devBranch: pr.devBranch || 'master',
-            targetServiceDir: pr.targetServiceDir || process.cwd()
+            targetBranch: pr.targetBranch || pr.prodBranch || 'master',
+            issueKey: pr.issueKey || '',
+            summary: pr.summary || '',
+            targetServiceDir: pr.targetServiceDir || WORKER_ROOT
         };
     }
 
@@ -202,142 +342,12 @@ function writeLocalPendingPRs(list) {
     fs.writeFileSync(PENDING_FILE, JSON.stringify(list, null, 2));
 }
 
-function savePendingPR(prInfo) {
-    const list = readLocalPendingPRs().filter(p => p.prNumber !== prInfo.prNumber);
-    list.push(prInfo);
-    writeLocalPendingPRs(list);
-}
-
-function removePendingPR(prNumber) {
-    const list = readLocalPendingPRs().filter(p => p.prNumber !== prNumber);
-    writeLocalPendingPRs(list);
-}
-
-// Kiểm tra real-time với GitHub: loại bỏ PR đã closed hoặc merged
-async function syncAndCleanPendingPRs() {
-    const localList = readLocalPendingPRs();
-    if (!localList.length) return localList;
-    if (!isGitHubHost() || !GIT_TOKEN) return localList;
-
-    const cleanedList = [];
-    for (const pr of localList) {
-        if (!pr.gitRepo) { cleanedList.push(pr); continue; }
-        try {
-            const url = `https://api.github.com/repos/${pr.gitRepo}/pulls/${pr.prNumber}`;
-            const res = await fetch(url, { headers: githubHeaders });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.state === 'open') cleanedList.push(pr);
-            } else if (res.status === 404) {
-                // PR đã bị xoá
-            } else {
-                cleanedList.push(pr);
-            }
-        } catch (e) {
-            cleanedList.push(pr);
-        }
-    }
-
-    writeLocalPendingPRs(cleanedList);
-    return cleanedList;
-}
-
 // --- GITHUB REST API UTILS ---
 const githubHeaders = {
     'Authorization': `Bearer ${GITHUB_TOKEN}`,
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'Autonomous-AI-Worker'
 };
-
-async function createPR(gitRepo, targetBranch, branchName, title, body) {
-    if (isGitHubHost()) return await createGitHubPR(gitRepo, targetBranch, branchName, title, body);
-
-    console.warn(`\n[CANH BAO] Đang sử dụng Git Host doanh nghiệp tự host: ${GIT_HOST}`);
-    console.warn(`[!] API tạo Pull Request của ${GIT_HOST} khác với GitHub API.`);
-
-    if (GIT_API_BASE_URL) {
-        console.log(`[+] Phát hiện GIT_API_BASE_URL: ${GIT_API_BASE_URL}. Đang gửi request tạo PR/MR...`);
-        try {
-            const cleanRepo = normalizeRepoPath(gitRepo);
-            const apiUrl = GIT_API_BASE_URL.replace('{repo}', encodeURIComponent(cleanRepo)).replace('{rawRepo}', cleanRepo);
-            const res = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${GIT_TOKEN}`, 'Content-Type': 'application/json', 'User-Agent': 'Autonomous-AI-Worker' },
-                body: JSON.stringify({ title: title, source_branch: branchName, target_branch: targetBranch, description: body, head: branchName, base: targetBranch })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                console.log(`[+] Đã tạo PR/MR thành công qua Generic API: ${data.web_url || data.html_url || data.url || JSON.stringify(data)}`);
-                return { html_url: data.web_url || data.html_url || data.url || `https://${GIT_HOST}/${cleanRepo}`, number: data.iid || data.id || data.number || Math.floor(Math.random() * 1000) };
-            } else {
-                console.warn(`[!] Gọi GIT_API_BASE_URL thất bại (HTTP ${res.status}): ${await res.text()}`);
-            }
-        } catch (apiErr) {
-            console.warn(`[!] Lỗi khi gọi GIT_API_BASE_URL: ${apiErr.message}`);
-        }
-    }
-
-    const cleanRepo = normalizeRepoPath(gitRepo);
-    const manualMrUrl = `https://${GIT_HOST}/${cleanRepo}`;
-    console.warn(`[!] Nhánh '${branchName}' đã push thành công lên ${GIT_HOST}.`);
-    console.warn(`[!] HƯỚNG DẪN: Vui lòng truy cập ${manualMrUrl} để tạo Merge Request / Pull Request thủ công từ nhánh '${branchName}' vào '${targetBranch}'.`);
-
-    return { html_url: manualMrUrl + ' (Cần tạo MR thủ công)', number: Math.floor(Math.random() * 1000) };
-}
-
-async function createGitHubPR(gitRepo, targetBranch, branchName, title, body) {
-    if (!GITHUB_TOKEN || !gitRepo) {
-        console.log(`[!] Không có GITHUB_TOKEN hoặc gitRepo. Giả lập mở PR thành công: #demo-pr`);
-        return {
-            html_url: `https://github.com/${gitRepo || 'mock-repo'}/pull/${Math.floor(Math.random() * 1000)}`,
-            number: Math.floor(Math.random() * 1000)
-        };
-    }
-
-    const url = `https://api.github.com/repos/${gitRepo}/pulls`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: githubHeaders,
-        body: JSON.stringify({
-            title: title,
-            head: branchName,
-            base: targetBranch || 'main',
-            body: body
-        })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.message || 'Không thể tạo PR');
-    }
-    return data;
-}
-
-async function mergePR(gitRepo, prNumber) {
-    if (!isGitHubHost()) {
-        console.warn(`[!] Host ${GIT_HOST} là git tự host, không hỗ trợ auto-merge qua GitHub API. Vui lòng merge thủ công trên Web UI.`);
-        throw new Error(`Host ${GIT_HOST} là git tự host, không hỗ trợ tự động merge qua API. Vui lòng duyệt merge thủ công trên Web UI.`);
-    }
-    return await mergeGitHubPR(gitRepo, prNumber);
-}
-
-async function mergeGitHubPR(gitRepo, prNumber) {
-    if (!GITHUB_TOKEN || !gitRepo) return { merged: true, message: 'Demo mode merged' };
-    const url = `https://api.github.com/repos/${gitRepo}/pulls/${prNumber}/merge`;
-    const res = await fetch(url, {
-        method: 'PUT',
-        headers: githubHeaders,
-        body: JSON.stringify({ merge_method: 'merge' })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-        const err = new Error(data.message || 'Lỗi khi merge PR');
-        err.status = res.status;
-        err.data = data;
-        throw err;
-    }
-    return data;
-}
 
 // --- TELEGRAM BOT HELPERS ---
 async function sendTelegramMessage(text, replyMarkup = null) {
@@ -428,94 +438,31 @@ async function handleCallbackQuery(cb) {
     }
 
     if (action.startsWith('merge|')) {
-        const [, prNumStr, branch] = action.split('|');
-        const prNumber = parseInt(prNumStr, 10);
+        // TẠM THỜI BỎ QUA: worker tự merge vào nhánh target (staging) sau khi
+        // unit test + coverage + build đều pass. Luồng tạo PR và duyệt merge
+        // thủ công sang production tạm thời không dùng.
+        await answerCallbackQuery(cb.id, `Tính năng duyệt PR thủ công tạm thời bị tắt. Worker tự merge vào staging sau khi unit test + build pass.`, true);
+        return;
+    }
 
-        let serviceInfo;
-        try {
-            serviceInfo = getServiceInfoForPR(prNumber, branch);
-        } catch (e) {
-            console.error(`[!] Lỗi tìm serviceInfo cho PR #${prNumber}:`, e.message);
-            await answerCallbackQuery(cb.id, `❌ Lỗi: ${e.message}`, true);
-            return;
-        }
+    if (action.startsWith('defer|')) {
+        // TẠM THỜI BỎ QUA: không còn danh sách chờ vì worker tự merge vào staging.
+        await answerCallbackQuery(cb.id, `Tính năng lưu vào hàng đợi tạm thời bị tắt.`, true);
+        return;
+    }
 
-        const { gitRepo, prodBranch, targetServiceDir } = serviceInfo;
-
-        await answerCallbackQuery(cb.id, `Đang xử lý Merge PR #${prNumber}...`);
-        await editMessageText(msgId, `⏳ <b>Đang thực hiện Merge PR #${prNumber}</b> vào <code>${prodBranch}</code>...`);
-
-        try {
-            await mergePR(gitRepo, prNumber);
-            removePendingPR(prNumber);
-            await editMessageText(msgId, `🎉 <b>Đã Merge thành công PR #${prNumber}</b> vào <code>${prodBranch}</code>!\n(Người duyệt: @${cb.from.username || userId})`);
-        } catch (err) {
-            console.error(`[!] Lỗi khi merge PR #${prNumber}:`, err.message);
-
-            // Bắt lỗi Conflict
-            await editMessageText(msgId, `⚠️ <b>Phát hiện Conflict trên PR #${prNumber}!</b>\nTrạng thái PR vẫn giữ <b>Open</b>. Đang kích hoạt Claude AI tự động phân tích và gỡ conflict...`);
-
-            const resolved = await resolveConflictWithClaude(branch, targetServiceDir, serviceInfo);
-
-            if (resolved) {
-                try {
-                    await mergePR(gitRepo, prNumber);
-                    removePendingPR(prNumber);
-                    await editMessageText(msgId, `✅ <b>Claude đã tự giải quyết xong Conflict và Merge PR #${prNumber} thành công!</b>`);
-                } catch (e2) {
-                    await editMessageText(msgId, `❌ Vẫn không thể merge sau khi resolve conflict: ${e2.message}\nVui lòng xử lý thủ công trên GitHub.`);
-                }
-            } else {
-                await editMessageText(msgId, `❌ <b>Conflict quá phức tạp.</b> Claude không thể tự động xử lý an toàn. Vui lòng resolve thủ công trên GitHub (PR vẫn giữ Open).`);
-            }
-        }
-    } else if (action.startsWith('defer|')) {
-        const [, prNumStr, branch, issueKey] = action.split('|');
-        const prNumber = parseInt(prNumStr, 10);
-        let extraInfo = {};
-        try {
-            extraInfo = getServiceInfoForPR(prNumber, branch);
-        } catch (e) {}
-        savePendingPR({
-            prNumber,
-            branch,
-            issueKey: issueKey || branch,
-            gitRepo: extraInfo.gitRepo,
-            prodBranch: extraInfo.prodBranch,
-            devBranch: extraInfo.devBranch,
-            targetServiceDir: extraInfo.targetServiceDir,
-            date: new Date().toISOString()
-        });
-        await answerCallbackQuery(cb.id, `Đã lưu PR #${prNumber} vào danh sách đợi.`);
-        await editMessageText(msgId, `⏳ <b>PR #${prNumber} đã được chuyển vào hàng đợi merge sau.</b>\n(Cập nhật bởi: @${cb.from.username || userId})`, {
-            inline_keyboard: [[{ text: "📋 Xem danh sách đợi Merge", callback_data: "list_pending" }]]
-        });
-    } else if (action === 'list_pending') {
-        // Đồng bộ kiểm tra GitHub để loại bỏ PR rác/đã đóng
-        await answerCallbackQuery(cb.id, `Đang đồng bộ trạng thái PR từ GitHub...`);
-        const pending = await syncAndCleanPendingPRs();
-
-        if (pending.length === 0) {
-            await editMessageText(msgId, `<b>📋 DANH SÁCH PR ĐỢI MERGE</b>\n\n<i>Hiện tại không có PR nào trong hàng đợi (các PR cũ đã merge/đóng đều đã được tự động dọn sạch).</i>`);
-            return;
-        }
-
-        let text = `<b>📋 DANH SÁCH PR ĐANG ĐỢI MERGE (${pending.length}):</b>\n\n`;
-        const keyboard = [];
-
-        pending.forEach((p, idx) => {
-            text += `${idx + 1}. PR #${p.prNumber} (<code>${p.branch}</code>) - ${p.issueKey}\n`;
-            keyboard.push([{ text: `🔀 Merge PR #${p.prNumber}`, callback_data: `merge|${p.prNumber}|${p.branch}` }]);
-        });
-
-        keyboard.push([{ text: "🔄 Làm mới / Dọn dẹp", callback_data: "list_pending" }]);
-
-        await editMessageText(msgId, text, { inline_keyboard: keyboard });
+    if (action === 'list_pending') {
+        // TẠM THỜI BỎ QUA: không còn danh sách chờ PR (worker tự merge vào staging).
+        await answerCallbackQuery(cb.id, `Danh sách chờ PR tạm thời bị tắt. Worker tự merge vào staging sau khi xác minh pass.`);
+        await editMessageText(msgId,
+            `<b>📋 DANH SÁCH PR ĐỢI MERGE</b>\n\n` +
+            `<i>Tạm thời không dùng danh sách chờ. Worker tự chạy unit test + coverage + build, ` +
+            `sau đó tự merge branch hotfix vào nhánh target (staging) và báo cáo kết quả.</i>`);
     }
 }
 
 // --- TỰ ĐỘNG GIẢI QUYẾT CONFLICT BẰNG CLAUDE ---
-async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesDir = 'services', serviceInfoParam = null) {
+async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesDir = null, serviceInfoParam = null) {
     let svc = serviceInfoParam;
     if (!svc || !svc.gitRepo || !svc.prodBranch) {
         try {
@@ -527,15 +474,15 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
     if (!svc || !svc.gitRepo || !svc.prodBranch) {
         throw new Error(`[Fail-Safe] Thiếu gitRepo/prodBranch cho branch ${branchName}, không thể resolve conflict an toàn.`);
     }
-    const targetBranch = svc.prodBranch;
+    // Nhánh PR đang mở: staging nếu có gate staging, nếu không thì prod.
+    // Trước đây luôn dùng prodBranch → với gate staging thì phải merge vào staging.
+    const targetBranch = svc.targetBranch || svc.prodBranch;
     const devBranch = svc.devBranch || 'master';
     const gitRepo = svc.gitRepo;
-    let cwd = svc.targetServiceDir || targetServiceDirOrServicesDir;
-    try {
-        if (targetServiceDirOrServicesDir && targetServiceDirOrServicesDir !== 'services') {
-            cwd = targetServiceDirOrServicesDir;
-        }
-    } catch (e) {}
+    let cwd = svc.targetServiceDir || WORKER_ROOT;
+    if (targetServiceDirOrServicesDir && targetServiceDirOrServicesDir !== 'services') {
+        cwd = targetServiceDirOrServicesDir;
+    }
     const pushUrlLocal = buildRemoteUrl(gitRepo);
     ensureRemoteOrigin(cwd, gitRepo);
     try {
@@ -555,7 +502,7 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
         runClaude(conflictPrompt, cwd, CLAUDE_TIMEOUT, false);
 
         // Bắt buộc kiểm tra commit do AI thực hiện
-        await ensureAICommittedItself(branchName, "resolve conflict", cwd, devBranch);
+        await ensureAICommittedItself(branchName, "resolve conflict", cwd, devBranch, 'fix(conflict)');
 
         // Push lại branch
         execSync(`git push ${pushUrlLocal} ${branchName}`, { cwd, stdio: 'inherit' });
@@ -570,8 +517,10 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
 }
 
 // --- KIỂM TRA COMMIT DO AI THỰC HIỆN (KHÔNG DÙNG SCRIPT COMMIT) ---
-async function ensureAICommittedItself(branchName, context, worktreeDir, baseBranch = null) {
-    const cwd = worktreeDir || process.cwd();
+// commitPrefix: 'fix(api)' | 'fix(web)' | 'fix(conflict)' — BẮT BUỘC theo convention trong CLAUDE.md.
+// Trước đây commit tự động dùng prefix 'fix(auto)' → vi phạm convention.
+async function ensureAICommittedItself(branchName, context, worktreeDir, baseBranch = null, commitPrefix = 'fix(api)') {
+    const cwd = worktreeDir || WORKER_ROOT;
     // Đảm bảo không add evidence/ vào commit rác
     const diffStatus = execSync(`git status --porcelain`, { cwd }).toString().trim();
     if (diffStatus !== "") {
@@ -582,21 +531,38 @@ async function ensureAICommittedItself(branchName, context, worktreeDir, baseBra
         let hasNonEvidence = false;
         const isIgnored = (f) => {
             const p = f.replace(/^"|"$/g, '');
-            return p.startsWith('evidence/') || p.startsWith('target/') || p.includes('/target/') || p.startsWith('node_modules/') || p.includes('/node_modules/') || p.startsWith('dist/') || p.includes('/dist/') || p.endsWith('.class');
+            // CLAUDE.md và .claude/ không bao giờ được đưa vào commit của repo khách.
+            if (p === 'CLAUDE.md' || p.startsWith('.claude/') || p.includes('/.claude/')) return true;
+            // File secret (.env, .env.*, key, cert) — TUYỆT ĐỐI không commit.
+            if (isSecretPath(p)) return true;
+            return p.startsWith('evidence/') || p.includes('/evidence/') || p.startsWith('target/') || p.includes('/target/') || p.startsWith('node_modules/') || p.includes('/node_modules/') || p.startsWith('dist/') || p.includes('/dist/') || p.endsWith('.class');
         };
         for (const line of lines) {
             const m = line.match(/^.{2}\s+(.+)$/);
             if (!m) continue;
+            const status = m[0].slice(0, 2);
             let file = m[1].trim().replace(/^"|"$/g, '');
             if (file.includes(' -> ')) file = file.split(' -> ').pop().trim().replace(/^"|"$/g, '');
             if (!file || isIgnored(file)) continue;
+            // File UNTRACKED (??) chỉ được add nếu nằm trong src/ (mã nguồn + test do AI tạo).
+            // File untracked ngoài src/ là của user (config, script...) → KHÔNG commit.
+            if (status === '??') {
+                const norm = file.replace(/\\/g, '/');
+                if (!norm.startsWith('src/') && !norm.includes('/src/')) {
+                    console.warn(`[!] Bỏ qua file untracked ngoài src/: ${file}`);
+                    continue;
+                }
+            }
             execSync(`git add -- "${file}"`, { cwd });
             hasNonEvidence = true;
         };
         
         if (hasNonEvidence) {
-            execSync(`git commit -m "fix(auto): catch uncommitted changes after ${context}"`, { cwd });
-            console.log(`[+] Đã tự động commit các thay đổi rác (loại trừ evidence).`);
+            // Dùng ĐÚNG prefix convention (fix(api) / fix(web)) thay vì 'fix(auto)'.
+            // Kèm [AUTO-BUG] để người review nhận ra commit do worker tạo, không phải AI tự viết.
+            const msg = `${commitPrefix}: commit các thay đổi còn sót lại sau ${context} [AUTO-BUG]`;
+            execSync(`git commit -m "${msg}"`, { cwd });
+            console.log(`[+] Đã tự động commit các thay đổi còn sót lại (loại trừ evidence). Message: ${msg}`);
         }
     }
 
@@ -609,8 +575,8 @@ async function ensureAICommittedItself(branchName, context, worktreeDir, baseBra
         
         // Kiểm tra bắt buộc phải có thay đổi trong source code (bỏ qua file evidence, md, json cấu hình không quan trọng nếu chỉ có 1 mình nó)
         const changedFiles = execSync(`git diff --name-only ${revTarget}`, { cwd, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-        const hasSrcChanges = changedFiles.some(f => 
-            f.includes('/src/') || f.endsWith('.java') || f.endsWith('.js') || f.endsWith('.ts') || f.endsWith('.jsx') || f.endsWith('.tsx') || f.endsWith('pom.xml') || f.endsWith('package.json')
+        const hasSrcChanges = changedFiles.some(f =>
+            /(^|\/)src\//.test(f) || f.endsWith('.java') || f.endsWith('.js') || f.endsWith('.ts') || f.endsWith('.jsx') || f.endsWith('.tsx') || f.endsWith('pom.xml') || f.endsWith('package.json')
         );
         
         if (!hasSrcChanges) {
@@ -633,9 +599,8 @@ async function checkJiraForBugs() {
 
         try {
             const { projectKey } = project;
-            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND labels != "auto-fix-processing" AND labels != "auto-fix-done" AND labels != "auto-fix-failed"`;
-            const searchUrl = `https://${JIRA_DOMAIN}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
-
+            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog", "Open", "RE OPENED") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND labels != "auto-fix-processing" AND labels != "auto-fix-done" AND labels != "auto-fix-failed"`;
+            const searchUrl = `https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/${JIRA_SEARCH_PATH}?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
             console.log(`[+] Đang quét Jira cho dự án ${projectKey}...`);
             const res = await fetch(searchUrl, {
                 method: 'GET',
@@ -653,19 +618,41 @@ async function checkJiraForBugs() {
 
             if (issues.length > 0) {
                 const issue = issues[0];
+                const serviceLabel = (issue.fields.labels || []).find(l => l.startsWith('service:'));
+                const targetService = serviceLabel ? serviceLabel.split(':')[1] : null;
+                const serviceLockKey = targetService ? `${projectKey}:${targetService}` : null;
+
+                // Per-service lock: tránh 2 job cùng mutate một repo service khi MAX_CONCURRENT_JOBS > 1
+                if (serviceLockKey && activeServiceLocks.has(serviceLockKey)) {
+                    console.log(`[!] Service '${serviceLockKey}' đang được xử lý bởi job khác. Tạm hoãn ${issue.key} sang chu kỳ sau.`);
+                    continue;
+                }
+
                 console.log(`[+] Đang gắn nhãn auto-fix-processing cho ${issue.key}...`);
+                // Claim lock: gắn nhãn auto-fix-processing. BẮT BUỘC kiểm tra res.ok —
+                // fetch chỉ throw khi lỗi mạng, HTTP 401/403/400 sẽ bị nuốt im lặng
+                // và ticket tiếp tục khớp JQL ở vòng 15s sau → xử lý trùng vô hạn.
                 try {
-                    await fetch(`https://${JIRA_DOMAIN}/rest/api/3/issue/${issue.key}`, {
+                    const claimRes = await fetch(`https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/issue/${issue.key}`, {
                         method: 'PUT',
                         headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
                         body: JSON.stringify({ update: { labels: [{ add: "auto-fix-processing" }] } })
                     });
-                } catch (e) { continue; }
+                    if (!claimRes.ok) {
+                        console.error(`[!] KHÔNG gắn được nhãn auto-fix-processing cho ${issue.key}: HTTP ${claimRes.status} - ${await claimRes.text()}`);
+                        console.error(`[!] Bỏ qua ticket ${issue.key}. Kiểm tra JIRA_TOKEN / quyền gắn nhãn trong project ${projectKey}.`);
+                        continue;
+                    }
+                } catch (e) {
+                    console.error(`[!] Lỗi mạng khi claim ${issue.key}: ${e.message}. Bỏ qua.`);
+                    continue;
+                }
 
+                if (serviceLockKey) activeServiceLocks.add(serviceLockKey);
                 activeJobs++;
                 console.log(`[+] Giao việc thành công: ${issue.key}. Active jobs: ${activeJobs}`);
 
-                processBugWrapper(issue, project).catch(e => {
+                processBugWrapper(issue, project, serviceLockKey).catch(e => {
                     console.error(`Worker crash nền tại ticket ${issue.key}:`, e);
                 });
             }
@@ -673,7 +660,7 @@ async function checkJiraForBugs() {
     }
 }
 
-async function processBugWrapper(issue, projectConfig) {
+async function processBugWrapper(issue, projectConfig, serviceLockKey = null) {
     let isSuccess = false;
     try {
         await processBug(issue.key, issue.fields.summary, issue.fields.description, issue.fields.attachment || [], projectConfig, issue.fields.labels || []);
@@ -686,21 +673,35 @@ async function processBugWrapper(issue, projectConfig) {
         } catch (e) {}
     } finally {
         activeJobs--;
+        if (serviceLockKey) activeServiceLocks.delete(serviceLockKey);
         console.log(`[-] Hoàn thành job ${issue.key}. Active jobs: ${activeJobs}`);
-        try {
-            const nextLabel = isSuccess ? "auto-fix-done" : "auto-fix-failed";
-            await fetch(`https://${JIRA_DOMAIN}/rest/api/3/issue/${issue.key}`, {
-                method: 'PUT',
-                headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ update: { labels: [{ remove: "auto-fix-processing" }, { add: nextLabel }] } })
-            });
-        } catch(e) {}
+        // Gỡ nhãn auto-fix-processing + gắn nhãn kết quả.
+        // Nếu PUT lỗi, nhãn processing VẪN còn → ticket kẹt vĩnh viễn, JQL loại trừ nó
+        // nên không bao giờ được xử lý lại. Phải kiểm tra res.ok và báo lỗi rõ ràng.
+        const nextLabel = isSuccess ? "auto-fix-done" : "auto-fix-failed";
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const labelRes = await fetch(`https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/issue/${issue.key}`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ update: { labels: [{ remove: "auto-fix-processing" }, { add: nextLabel }] } })
+                });
+                if (labelRes.ok) {
+                    if (attempt > 1) console.log(`[+] Đã cập nhật nhãn ${issue.key} sau ${attempt} lần thử.`);
+                    break;
+                }
+                console.error(`[!] Cập nhật nhãn ${issue.key} thất bại (lần ${attempt}/3): HTTP ${labelRes.status} - ${await labelRes.text()}`);
+            } catch (e) {
+                console.error(`[!] Lỗi mạng cập nhật nhãn ${issue.key} (lần ${attempt}/3): ${e.message}`);
+            }
+            if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+        }
     }
 }
 
 async function markJiraIssueFailed(issueKey, reason) {
     try {
-        await fetch(`https://${JIRA_DOMAIN}/rest/api/3/issue/${issueKey}`, {
+        const res = await fetch(`https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/issue/${issueKey}`, {
             method: 'PUT',
             headers: {
                 'Authorization': authHeader,
@@ -712,31 +713,327 @@ async function markJiraIssueFailed(issueKey, reason) {
                 }
             })
         });
-    } catch (e) { }
+        if (!res.ok) {
+            console.error(`[!] Không gắn được nhãn auto-fix-failed cho ${issueKey}: HTTP ${res.status}`);
+        }
+    } catch (e) {
+        console.error(`[!] Lỗi gắn nhãn auto-fix-failed cho ${issueKey}: ${e.message}`);
+    }
 }
 
 async function addJiraComment(issueKey, commentBody) {
     try {
-        await fetch(`https://${JIRA_DOMAIN}/rest/api/3/issue/${issueKey}/comment`, {
+        const bodyPayload = isJiraCloud
+            ? {
+                type: "doc",
+                version: 1,
+                content: [{ type: "paragraph", content: [{ type: "text", text: commentBody }] }]
+            }
+            : commentBody;
+
+        const res = await fetch(`https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/issue/${issueKey}/comment`, {
             method: 'POST',
             headers: {
                 'Authorization': authHeader,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                body: {
-                    type: "doc",
-                    version: 1,
-                    content: [
-                        {
-                            type: "paragraph",
-                            content: [{ type: "text", text: commentBody }]
-                        }
-                    ]
-                }
-            })
+            body: JSON.stringify({ body: bodyPayload })
         });
-    } catch (e) { }
+        if (!res.ok) {
+            console.error(`[!] Không thêm được comment cho ${issueKey}: HTTP ${res.status}`);
+        }
+    } catch (e) {
+        console.error(`[!] Lỗi thêm comment cho ${issueKey}: ${e.message}`);
+    }
+}
+
+// --- PHÂN LOẠI FILE ---
+// Artifact build: không tính là thay đổi thật (một số repo vô tình track chúng).
+function isArtifactPath(f) {
+    const p = f.replace(/\\/g, '/');
+    return p.startsWith('target/') || p.includes('/target/') ||
+        p.startsWith('dist/') || p.includes('/dist/') ||
+        p.startsWith('node_modules/') || p.includes('/node_modules/') ||
+        p.endsWith('.class') || p.endsWith('.jar') ||
+        // evidence/ do worker tạo trong repo service → phải dọn, không tính là thay đổi của user.
+        p.startsWith('evidence/') || p.includes('/evidence/');
+}
+
+// File secret: TUYỆT ĐỐI không được đưa vào commit của repo khách.
+// `.env.example` / `.env.sample` là file MẪU (chỉ chứa key trống) — commit vào repo là chuẩn.
+function isSecretPath(f) {
+    const p = f.replace(/\\/g, '/');
+    const base = p.split('/').pop();
+    if (base === '.env.example' || base === '.env.sample' || base === '.env.template') return false;
+    return base === '.env' || base.startsWith('.env.') ||
+        p.endsWith('.pem') || p.endsWith('.key') || p.endsWith('.p12') || p.endsWith('.jks');
+}
+
+// Liệt kê thay đổi chưa commit trong repo (bỏ qua artifact build).
+// Dùng để dirty-guard: nếu repo service bẩn thì thay đổi sẽ đi theo khi checkout -B
+// và có thể bị commit + push lên nhánh target. Phải abort trước khi điều đó xảy ra.
+function listDirtyFiles(cwd) {
+    let out = '';
+    try {
+        out = execSync('git status --porcelain', { cwd, encoding: 'utf8' });
+    } catch (e) {
+        return [];
+    }
+    return out.split('\n').map(l => l.trimEnd()).filter(Boolean)
+        .map(l => {
+            const file = l.slice(3).trim();
+            const arrow = file.indexOf(' -> ');
+            return (arrow >= 0 ? file.slice(arrow + 4) : file).replace(/^"|"$/g, '');
+        })
+        .filter(f => f && !isArtifactPath(f));
+}
+
+// --- CHẠY TEST + BUILD (worker tự chạy, không phụ thuộc AI tự báo) ---
+function runCommand(cwd, cmd, timeoutMs = 15 * 60 * 1000) {
+    try {
+        const out = execSync(cmd, {
+            cwd,
+            encoding: 'utf8',
+            timeout: timeoutMs,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            maxBuffer: 50 * 1024 * 1024
+        });
+        return { ok: true, output: out || '' };
+    } catch (e) {
+        const stdout = e.stdout ? e.stdout.toString() : '';
+        const stderr = e.stderr ? e.stderr.toString() : '';
+        return { ok: false, output: (stdout + '\n' + stderr).trim() };
+    }
+}
+
+// Kiểm tra coverage JaCoCo cho đúng các class liên quan tới file vừa sửa.
+// Đọc target/site/jacoco/jacoco.csv: CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED
+function checkCoverageForChangedFiles(cwd, changedFiles, minCoverage = 90) {
+    // Gom tên class đã sửa: src/main/java/com/poc/Calc.java -> Calc
+    // Kiểm tra DANH SÁCH class TRƯỚC: nếu không có file .java nào bị sửa thì không cần
+    // jacoco.csv (kiểm tra CSV trước sẽ fail oan khi repo chưa từng chạy jacoco).
+    const changedClasses = new Set();
+    for (const f of changedFiles) {
+        const norm = f.replace(/\\/g, '/');
+        // `git diff --name-only` trả path KHÔNG có leading slash (vd 'src/main/java/...'),
+        // nên phải match cả đầu chuỗi lẫn giữa chuỗi — dùng includes('/src/main/java/')
+        // sẽ luôn false và bỏ qua toàn bộ class đã sửa.
+        if (!/(^|\/)src\/main\/java\//.test(norm)) continue;
+        const base = norm.split('/').pop().replace(/\.java$/, '');
+        if (base) changedClasses.add(base);
+    }
+    if (changedClasses.size === 0) {
+        return { ok: true, reason: 'Không có file .java trong src/main/java bị sửa (bỏ qua check coverage)', details: [] };
+    }
+
+    const csvPath = path.join(cwd, 'target', 'site', 'jacoco', 'jacoco.csv');
+    if (!fs.existsSync(csvPath)) {
+        return { ok: false, reason: 'Không tìm thấy target/site/jacoco/jacoco.csv (chưa chạy jacoco:report?)', details: [] };
+    }
+
+    const csv = fs.readFileSync(csvPath, 'utf8');
+    const lines = csv.trim().split(/\r?\n/);
+    const header = lines[0].split(',');
+    const iClass = header.indexOf('CLASS');
+    const iMissed = header.indexOf('INSTRUCTION_MISSED');
+    const iCovered = header.indexOf('INSTRUCTION_COVERED');
+    if (iClass < 0 || iMissed < 0 || iCovered < 0) {
+        return { ok: false, reason: 'jacoco.csv thiếu cột CLASS/INSTRUCTION_MISSED/INSTRUCTION_COVERED', details: [] };
+    }
+
+    const details = [];
+    let allOk = true;
+    for (const cls of changedClasses) {
+        let missed = 0, covered = 0, found = false;
+        for (const line of lines.slice(1)) {
+            const cells = line.split(',');
+            if (cells[iClass] !== cls) continue;
+            found = true;
+            missed += parseInt(cells[iMissed] || '0', 10);
+            covered += parseInt(cells[iCovered] || '0', 10);
+        }
+        if (!found) {
+            details.push({ cls, coverage: null, note: 'không tìm thấy trong jacoco.csv' });
+            allOk = false;
+            continue;
+        }
+        const total = missed + covered;
+        const pct = total > 0 ? Math.round((covered / total) * 1000) / 10 : 0;
+        details.push({ cls, coverage: pct, missed, covered });
+        if (pct < minCoverage) allOk = false;
+    }
+    return { ok: allOk, details, minCoverage };
+}
+
+// Chạy chuỗi xác minh cho service. Dừng ngay khi bước nào fail.
+function verifyService(cwd, targetService, changedFiles) {
+    const isJava = fs.existsSync(path.join(cwd, 'pom.xml')) || fs.existsSync(path.join(cwd, 'build.gradle'));
+    const hasPackageJson = fs.existsSync(path.join(cwd, 'package.json'));
+    const isApi = isJava || (!hasPackageJson && targetService !== 'web' && !targetService.startsWith('fe-') && !targetService.endsWith('-web'));
+    const steps = [];
+
+    // 1) Unit test đầy đủ (+ jacoco report cho api)
+    //    Web: nếu có test runner (vitest/jest) → chạy npm test -- --run.
+    //    Nếu web chưa cấu hình test runner (như shop-web/cms-web chuẩn Vite FE) → chạy npm run build
+    //    để xác minh cú pháp JSX và bundle, tuân thủ đúng quy định trong CLAUDE.md.
+    const pkgPath = path.join(cwd, 'package.json');
+    const pkgContent = fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath, 'utf8') : '';
+    const hasTestScript = /"test"\s*:/.test(pkgContent);
+    const hasTestRunner = /(vitest|jest|mocha|@testing-library|ava|tape)/.test(pkgContent);
+
+    let testCmd = '';
+    if (isApi) {
+        testCmd = 'mvnw.cmd -B clean test jacoco:report';
+    } else if (hasTestScript && hasTestRunner) {
+        testCmd = 'npm test -- --run';
+    } else {
+        console.log('[TEST] Service web chưa cấu hình test runner riêng. Xác minh cú pháp và bundle qua "npm run build" (theo CLAUDE.md).');
+        testCmd = 'npm run build';
+    }
+
+    console.log(`[TEST] Chạy: ${testCmd}`);
+    const testRes = runCommand(cwd, testCmd);
+    steps.push({ step: 'test', cmd: testCmd, ok: testRes.ok });
+    if (!testRes.ok) {
+        console.error('[TEST] THẤT BẠI — không merge.');
+        console.error(testRes.output.slice(-4000));
+        return { ok: false, step: 'test', steps, output: testRes.output };
+    }
+
+    // 2) Coverage cho các class vừa sửa (chỉ api có JaCoCo)
+    if (isApi) {
+        const cov = checkCoverageForChangedFiles(cwd, changedFiles, 90);
+        steps.push({ step: 'coverage', ok: cov.ok, details: cov.details, reason: cov.reason });
+        if (!cov.ok) {
+            console.error('[COVERAGE] THẤT BẠI — coverage chưa đạt cho các class liên quan.');
+            console.error(JSON.stringify(cov.details, null, 2));
+            if (cov.reason) console.error(cov.reason);
+            return { ok: false, step: 'coverage', steps, output: '' };
+        }
+        console.log('[COVERAGE] OK — ' + cov.details.map(d => `${d.cls}=${d.coverage}%`).join(', '));
+    }
+
+    // 3) Build — bắt lỗi biên dịch
+    const buildCmd = isApi
+        ? 'mvnw.cmd -B -DskipTests package'
+        : (testCmd === 'npm run build' ? null : 'npm run build');
+
+    if (buildCmd) {
+        console.log(`[BUILD] Chạy: ${buildCmd}`);
+        const buildRes = runCommand(cwd, buildCmd);
+        steps.push({ step: 'build', cmd: buildCmd, ok: buildRes.ok });
+        if (!buildRes.ok) {
+            console.error('[BUILD] THẤT BẠI — không merge.');
+            console.error(buildRes.output.slice(-4000));
+            return { ok: false, step: 'build', steps, output: buildRes.output };
+        }
+    } else {
+        steps.push({ step: 'build', cmd: 'npm run build (đã kiểm tra ở bước test)', ok: true });
+    }
+
+    return { ok: true, step: 'done', steps, output: '' };
+}
+
+// Dựng URL web để mở branch trên Git host hiện tại (github.com / gitlab tự host).
+function buildWebUrl(gitRepo, branchName) {
+    const host = normalizeGitHost(GIT_HOST);
+    const scheme = host.startsWith('10.') || host.startsWith('192.168.') || host.includes(':') ? 'http' : 'https';
+    const repoPath = normalizeRepoPath(gitRepo);
+    if (host.toLowerCase() === 'github.com') {
+        return `https://github.com/${repoPath}/tree/${branchName}`;
+    }
+    // GitLab: /<namespace>/<project>/-/tree/<branch>
+    return `${scheme}://${host}/${repoPath}/-/tree/${branchName}`;
+}
+
+// --- KIỂM TRA PIPELINE CI/CD (nếu repo có) ---
+// Trả về { status: 'ok'|'skipped'|'failed'|'running', detail }
+// Trả về trạng thái pipeline mới nhất của branch:
+//   { status: 'ok'|'failed'|'running'|'timeout'|'skipped', detail, url }
+async function getPipelineOnce(gitRepo, branchName) {
+    if (isGitHubHost()) {
+        if (!GITHUB_TOKEN) {
+            return { status: 'skipped', detail: 'Thiếu GITHUB_TOKEN — bỏ qua bước kiểm tra pipeline.' };
+        }
+        const wfRes = await fetch(`https://api.github.com/repos/${gitRepo}/actions/workflows`, { headers: githubHeaders });
+        if (!wfRes.ok) {
+            return { status: 'skipped', detail: `Repo không có GitHub Actions (HTTP ${wfRes.status}) — bỏ qua bước kiểm tra pipeline.` };
+        }
+        const wfData = await wfRes.json();
+        if ((wfData.workflows || []).length === 0) {
+            return { status: 'skipped', detail: 'Repo không có workflow CI nào — bỏ qua bước kiểm tra pipeline.' };
+        }
+        const runsRes = await fetch(
+            `https://api.github.com/repos/${gitRepo}/actions/runs?branch=${encodeURIComponent(branchName)}&per_page=10`,
+            { headers: githubHeaders }
+        );
+        if (!runsRes.ok) {
+            return { status: 'skipped', detail: `Không đọc được danh sách run (HTTP ${runsRes.status}).` };
+        }
+        const runs = (await runsRes.json()).workflow_runs || [];
+        if (runs.length === 0) {
+            return { status: 'running', detail: `Chưa có workflow run nào cho branch ${branchName} — đang chờ CI khởi tạo.` };
+        }
+        const run = runs[0];
+        if (run.status !== 'completed') {
+            return { status: 'running', detail: `Pipeline #${run.id} đang ${run.status}.`, url: run.html_url };
+        }
+        if (run.conclusion === 'success') {
+            return { status: 'ok', detail: `Pipeline #${run.id} thành công.`, url: run.html_url };
+        }
+        return { status: 'failed', detail: `Pipeline #${run.id} kết thúc với ${run.conclusion}.`, url: run.html_url };
+    }
+
+    // GitLab CI (self-hosted hoặc gitlab.com)
+    if (!GIT_TOKEN) {
+        return { status: 'skipped', detail: 'Thiếu GIT_TOKEN — bỏ qua bước kiểm tra pipeline.' };
+    }
+    const scheme = normalizeGitHost(GIT_HOST).startsWith('10.') || normalizeGitHost(GIT_HOST).includes(':') ? 'http' : 'https';
+    const projectId = encodeURIComponent(gitRepo);
+    const url = `${scheme}://${GIT_HOST}/api/v4/projects/${projectId}/pipelines?ref=${encodeURIComponent(branchName)}&per_page=5`;
+    const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': GIT_TOKEN } });
+    if (res.status === 404) {
+        return { status: 'skipped', detail: `Không tìm thấy project '${gitRepo}' trên ${GIT_HOST} — bỏ qua bước kiểm tra pipeline.` };
+    }
+    if (!res.ok) {
+        return { status: 'skipped', detail: `Không đọc được pipeline GitLab (HTTP ${res.status}) — bỏ qua.` };
+    }
+    const pipelines = await res.json();
+    if (!Array.isArray(pipelines) || pipelines.length === 0) {
+        return { status: 'running', detail: `Chưa có pipeline nào cho branch ${branchName} trên ${GIT_HOST} — đang chờ CI khởi tạo.` };
+    }
+    const pl = pipelines[0];
+    const plUrl = pl.web_url;
+    if (pl.status === 'success') {
+        return { status: 'ok', detail: `Pipeline #${pl.id} thành công.`, url: plUrl };
+    }
+    if (pl.status === 'failed' || pl.status === 'canceled') {
+        return { status: 'failed', detail: `Pipeline #${pl.id} kết thúc với ${pl.status}.`, url: plUrl };
+    }
+    return { status: 'running', detail: `Pipeline #${pl.id} đang ${pl.status}.`, url: plUrl };
+}
+
+// Kiểm tra pipeline CI/CD. Nếu repo chưa có CI → status 'skipped' và KHÔNG chặn.
+// Nếu có CI → poll chờ tối đa CI_POLL_MAX lần, mỗi lần CI_POLL_INTERVAL_MS.
+async function checkCiPipeline(gitRepo, branchName) {
+    try {
+        let last = { status: 'skipped', detail: 'Không xác định được trạng thái pipeline.' };
+        for (let attempt = 1; attempt <= CI_POLL_MAX; attempt++) {
+            last = await getPipelineOnce(gitRepo, branchName);
+            if (last.status === 'ok' || last.status === 'failed' || last.status === 'skipped') return last;
+            if (attempt < CI_POLL_MAX) {
+                console.log(`[CI] ${last.detail} (lần ${attempt}/${CI_POLL_MAX}) — chờ ${CI_POLL_INTERVAL_MS / 1000}s...`);
+                await new Promise(r => setTimeout(r, CI_POLL_INTERVAL_MS));
+            }
+        }
+        return {
+            status: 'timeout',
+            detail: `Pipeline chưa kết thúc sau ${CI_POLL_MAX} lần kiểm tra (${Math.round((CI_POLL_MAX * CI_POLL_INTERVAL_MS) / 60000)} phút). ${last.detail || ''}`,
+            url: last.url
+        };
+    } catch (e) {
+        return { status: 'skipped', detail: `Lỗi khi kiểm tra pipeline: ${e.message} — bỏ qua.` };
+    }
 }
 
 async function processBug(issueKey, summary, description, attachments, projectConfig, labels) {
@@ -745,14 +1042,12 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         throw new Error(`[Fail-Safe Abort] Ticket ${issueKey} không có nhãn 'service:*'. Không xác định được service mục tiêu để xử lý an toàn.`);
     }
 
-    const projectPath = projectConfig.path || '.';
+    const projectDir = resolveProjectDir(projectConfig);
     const targetService = serviceLabel.split(':')[1];
 
     // Đọc services.json tại project
-    const servicesJsonPath = path.join(projectPath, 'services.json');
-    if (!fs.existsSync(servicesJsonPath)) {
-        throw new Error(`[Fail-Safe Abort] Project ${projectConfig.projectKey} thiếu file ${servicesJsonPath}.`);
-    }
+    const servicesJsonPath = path.join(projectDir, 'services.json');
+
 
     let servicesData;
     try {
@@ -772,7 +1067,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         throw new Error(`[Fail-Safe Abort] Service '${targetService}' thiếu gitRepo hoặc cấu hình branches (dev, prod) trong ${servicesJsonPath}.`);
     }
 
-    const targetServiceDir = path.join(process.cwd(), projectPath, serviceConfig.path || targetService);
+    const targetServiceDir = resolveServiceDir(projectDir, serviceConfig);
     if (!fs.existsSync(targetServiceDir)) {
         throw new Error(`[Fail-Safe Abort] Thư mục service '${targetServiceDir}' không tồn tại.`);
     }
@@ -783,63 +1078,111 @@ async function processBug(issueKey, summary, description, attachments, projectCo
     const gitRepo = serviceConfig.gitRepo;
     const pushUrl = buildRemoteUrl(gitRepo);
 
-    const branchName = `hotfix/${issueKey}`;
-    const worktreeDir = path.join(targetServiceDir, '.worktrees', branchName);
+    // Tên branch có timestamp để mỗi lần retry tạo branch MỚI, không ghi đè lịch sử cũ trên remote.
+    // Trước đây: `hotfix/<KEY>` + `git branch -D` + `push --force` → mỗi lần retry xoá sạch
+    // commit cũ đã push lên remote (và người khác đang review PR cũ sẽ mất ref).
+    // Định dạng: hotfix/<KEY>-<YYYYMMDD-HHMMSS>
+    const runStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
+    const branchName = `hotfix/${issueKey}-${runStamp}`;
+    // KHÔNG dùng git worktree: tạo branch trực tiếp trong repo service.
+    // Base của branch = nhánh target (staging) — sửa code TRÊN nhánh target.
+    const baseBranch = targetBranch || devBranch;
+    // Thư mục làm việc = repo service (đã checkout branch hotfix).
+    const worktreeDir = targetServiceDir;
 
     console.log(`\n========================================`);
     console.log(`[+] Phát hiện Bug mới: ${issueKey} - ${summary}`);
     console.log(`[+] Target Repo: ${gitRepo} | Service: ${targetService} | Dev Branch: ${devBranch}`);
-
+    // Nhánh user đang làm việc — phải restore lại sau khi xử lý xong (khai báo ngoài try để finally luôn thấy).
+    let originalBranch = '';
     try {
-        // 1. Dọn dẹp worktree cũ nếu bị kẹt (remove fail -> xóa thư mục vật lý fallback)
+        // 1. Dọn worktree cũ còn sót lại từ lần chạy trước (không dùng worktree nữa).
         try {
             execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
-        } catch(e) {
-            try { fs.rmSync(path.join(targetServiceDir, '.worktrees', branchName), { recursive: true, force: true }); } catch(err) {}
-            try { execSync(`git worktree prune`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch(err) {}
-        }
+        } catch(e) {}
+        try { execSync(`git worktree prune`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch(err) {}
 
         // 2. Cấu hình danh tính Git trong repo service
         execSync(`git config user.name "${GIT_AUTHOR_NAME}"`, { cwd: targetServiceDir, stdio: 'pipe' });
         execSync(`git config user.email "${GIT_AUTHOR_EMAIL}"`, { cwd: targetServiceDir, stdio: 'pipe' });
+
+        try {
+            originalBranch = execSync(`git rev-parse --abbrev-ref HEAD`, { cwd: targetServiceDir, encoding: 'utf8' }).trim();
+        } catch (e) {}
 
         // 3. Kéo code mới nhất từ remote
         console.log(`[+] Kéo code mới nhất từ origin/${devBranch}...`);
         ensureRemoteOrigin(targetServiceDir, gitRepo);
         execSync(`git fetch origin`, { cwd: targetServiceDir, stdio: 'pipe' });
 
-        // 4. Tạo Git Worktree độc lập
+        // 3b. DIRTY-GUARD: repo service phải SẠCH trước khi tạo branch.
+        // Nếu không: `git checkout -B` sẽ mang thay đổi chưa commit sang branch hotfix,
+        // rồi ensureAICommittedItself git add + commit → push thẳng lên nhánh target.
+        // Đặc biệt nguy hiểm với file .env (secret lọt lên remote).
+        const dirty = listDirtyFiles(targetServiceDir);
+        if (dirty.length > 0) {
+            const secrets = dirty.filter(isSecretPath);
+            const hint = secrets.length > 0
+                ? `\n⛔ Có file SECRET (${secrets.join(', ')}) — KHÔNG được commit. Hãy thêm vào .gitignore hoặc xoá khỏi index (git rm --cached).`
+                : '';
+            throw new Error(
+                `Repo service '${targetServiceDir}' có ${dirty.length} thay đổi chưa commit: ${dirty.join(', ')}.\n` +
+                `Worker cần repo sạch để tạo branch hotfix — nếu không, thay đổi đó sẽ bị commit và push lên nhánh target.${hint}`
+            );
+        }
+
+        // 4. Tạo branch hotfix TRỰC TIẾP trong repo service, base = origin/<target>.
+        // KHÔNG xoá branch cũ: tên branch có timestamp nên mỗi lần chạy là một branch riêng.
+        console.log(`[+] Tạo branch ${branchName} từ origin/${baseBranch}...`);
         try {
             execSync(`git branch -D ${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
         } catch(e) {}
-        console.log(`[+] Tạo git worktree tại .worktrees/${branchName}...`);
-        execSync(`git worktree add -B ${branchName} .worktrees/${branchName} origin/${devBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        execSync(`git checkout -B ${branchName} origin/${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
 
-        // 4b. Copy CLAUDE.md context vào worktree để Claude Code có rules
-        try {
-            const rootClaudeMd = path.join(process.cwd(), 'CLAUDE.md');
-            const worktreeClaudeMd = path.join(worktreeDir, 'CLAUDE.md');
-            if (fs.existsSync(rootClaudeMd) && !fs.existsSync(worktreeClaudeMd)) {
-                fs.copyFileSync(rootClaudeMd, worktreeClaudeMd);
-                console.log(`[+] Đã copy CLAUDE.md vào worktree.`);
-            }
-        } catch(e) { console.warn(`[!] Không thể copy CLAUDE.md: ${e.message}`); }
-        // 5. Chuẩn bị prompt và thư mục evidence
+        // 4b. Claude Code chạy với cwd = repo service (đã checkout branch hotfix).
+        // Rules nạp qua --append-system-prompt, guardrail hook nạp qua --settings →
+        // không ghi file nào vào repo khách.
+        console.log(`[+] Context nạp qua --append-system-prompt + --settings (không ghi file vào repo).`);
         let attachmentInfo = "";
         if (attachments.length > 0) {
             attachmentInfo = "Attachments available:\n" + attachments.map(a => `- ${a.filename}: ${a.content}`).join("\n");
         }
 
-        let serviceTestCmd = "'./mvnw clean test' or 'mvn clean test'";
+        let serviceTestCmd = "'mvnw.cmd -B clean test jacoco:report' or 'mvn -B clean test jacoco:report'";
         let commitPrefix = "fix(api)";
-        if (targetService === 'web') {
-            serviceTestCmd = "'npm test' or 'npm run build'";
+        const isJava = fs.existsSync(path.join(targetServiceDir, 'pom.xml')) || fs.existsSync(path.join(targetServiceDir, 'build.gradle'));
+        const hasPackageJson = fs.existsSync(path.join(targetServiceDir, 'package.json'));
+        const isWeb = !isJava && (targetService === 'web' || targetService.startsWith('fe-') || targetService.endsWith('-web') || hasPackageJson);
+        if (isWeb) {
+            const pkgPath = path.join(targetServiceDir, 'package.json');
+            const pkgStr = fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath, 'utf8') : '';
+            const hasWebTest = /"test"\s*:/.test(pkgStr) && /(vitest|jest|mocha)/.test(pkgStr);
+            serviceTestCmd = hasWebTest ? "'npm test'" : "'npm run build'";
             commitPrefix = "fix(web)";
         }
-        const fixPrompt = `Fix bug: ${summary}. ${attachmentInfo}. Locate the bug, modify the source code with minimal changes in the 'src' directory, run verification command ${serviceTestCmd}, ensure it passes, commit the fix using 'git commit -m "${commitPrefix}: ..."' following conventional commits. DO NOT commit any files from the 'evidence' folder. Do not fail.`;
+        const fixPrompt = `Fix bug: ${summary}. ${attachmentInfo}
+
+STEPS (follow strictly, in order):
+1. LOCATE the bug by reading the source code and the error details. The service is '${targetService}'.
+2. FIX it with minimal changes inside the 'src' directory. Do not touch unrelated files.
+3. WRITE COMPLETE UNIT TESTS for every class/method/function you changed or that directly depends on the change:
+   - Cover ALL relevant cases: success, edge cases, boundary values, invalid input, null/empty, exceptions.
+   - For Java: JUnit 5 + Mockito, one test class per changed class, name the test class <Class>Test.java under src/test/java mirroring the main package.
+   - For JavaScript/TypeScript: a test file mirroring the source file.
+   - Do NOT write empty/trivial assertions (e.g. assertTrue(true)) to inflate coverage. Every assertion must verify real behaviour.
+   - For Java the coverage of every class you changed MUST be >= 90% (the worker reads the report at target/site/jacoco/jacoco.csv and rejects the fix otherwise). Write enough test cases to reach that — do not weaken assertions to fit.
+   - Do NOT weaken or delete existing tests.
+4. SAVE the verification output into 'evidence/${issueKey}/after' (relative to your current working directory).
+   - You MAY run a quick targeted test to check your own work, but DO NOT run the full
+     build/test suite: the worker runs '${serviceTestCmd}' itself after you finish.
+5. COMMIT your changes with 'git commit -m "${commitPrefix}: ..."' using the required conventional-commit prefix.
+   - DO NOT commit anything from the 'evidence' folder.
+   - Only ONE commit for the whole fix.
+
+Do not fail. Do not ask questions. Make sure the tests you wrote are complete and correct, then commit and stop.`;
 
         // Dọn dẹp evidence cũ của ticket này (nếu có)
-        fs.rmSync(path.join(process.cwd(), 'evidence', issueKey), { recursive: true, force: true });
+        fs.rmSync(path.join(WORKER_ROOT, 'evidence', issueKey), { recursive: true, force: true });
         evidenceHelper.ensureEvidenceDir(issueKey);
         evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, JSON.stringify(description) || summary);
 
@@ -853,9 +1196,19 @@ async function processBug(issueKey, summary, description, attachments, projectCo
             throw new Error(`Repro aborted: ${reason}`);
         }
 
-        const beforeDir = path.join(process.cwd(), 'evidence', issueKey, 'before');
-        if (!fs.existsSync(beforeDir) || fs.readdirSync(beforeDir).length === 0) {
-            throw new Error(`Repro fail: AI không tạo bằng chứng trong 'evidence/${issueKey}/before'.`);
+        // Thu thập evidence do Claude tạo trong worktree (cwd của Claude = worktree).
+        // Không có bước này, bằng chứng của AI nằm lại trong worktree và bị xoá khi dọn.
+        const collected = evidenceHelper.collectFromWorktree(worktreeDir, issueKey, 'before');
+        if (collected.copied > 0) {
+            console.log(`[+] Đã thu thập ${collected.copied} file evidence từ worktree: ${collected.files.join(', ')}`);
+        }
+
+        // Kiểm tra bằng chứng repro có thật: phải có file do AI tạo, không phải file
+        // placeholder mà worker tự sinh ở trên (chỉ có tên chứa JIRA_KEY, nội dung rỗng).
+        const beforeFiles = evidenceHelper.listEvidenceFiles(issueKey, 'before');
+        const aiEvidence = beforeFiles.filter(f => f !== `${issueKey}_error.txt`);
+        if (aiEvidence.length === 0) {
+            throw new Error(`Repro fail: AI không tạo bằng chứng trong 'evidence/${issueKey}/before/' của worktree (đã thu thập ${collected.copied} file).`);
         }
 
         await evidenceHelper.sendEvidenceToTelegram(issueKey, 'before', `🚨 <b>LỖI MỚI PHÁT HIỆN & REPRO</b>\n<b>Ticket:</b> ${issueKey}\n<b>Summary:</b> ${summary}`);
@@ -865,90 +1218,136 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         runClaude(fixPrompt, worktreeDir, CLAUDE_TIMEOUT, false);
 
         // 8. Đảm bảo AI đã tự commit
-        await ensureAICommittedItself(branchName, `ticket ${issueKey}`, worktreeDir, devBranch);
+        // baseBranch (staging) chứ không phải devBranch: branch được tạo từ origin/<target>,
+        // nếu so với master thì rev-list luôn >0 → gate 'AI có tạo commit' bị vô hiệu.
+        await ensureAICommittedItself(branchName, `ticket ${issueKey}`, worktreeDir, baseBranch, commitPrefix);
 
-        // 9. Push branch hotfix lên gitRepo tương ứng
+        // 8b. Thu thập evidence "after" (kết quả test sau khi fix) từ worktree.
+        // Trước đây phase after không bao giờ được điền — chỉ có 'before'.
+        const collectedAfter = evidenceHelper.collectFromWorktree(worktreeDir, issueKey, 'after');
+        if (collectedAfter.copied > 0) {
+            console.log(`[+] Đã thu thập ${collectedAfter.copied} file evidence 'after' từ worktree.`);
+        }
+
+        // 9. Worker TỰ chạy unit test + coverage + build.
+        // Chỉ khi TẤT CẢ pass mới được merge. Không tin báo cáo tự khai của AI.
+        // Lọc bỏ artifact build (target/, dist/, node_modules/) — một số repo vô tình track
+        // chúng, nếu không lọc thì danh sách file rác làm loãng kiểm tra coverage.
+        const changedFiles = execSync(`git diff --name-only origin/${baseBranch}..HEAD`, { cwd: targetServiceDir, encoding: 'utf8' })
+            .trim().split('\n').filter(Boolean).filter(f => !isArtifactPath(f));
+        console.log(`[+] File đã thay đổi (${changedFiles.length}): ${changedFiles.join(', ') || '(không có)'}`);
+
+        const verify = verifyService(targetServiceDir, targetService, changedFiles);
+        if (!verify.ok) {
+            throw new Error(`Xác minh thất bại ở bước '${verify.step}'. Chi tiết: ${JSON.stringify(verify.steps)}`);
+        }
+        console.log('[+] Xác minh PASS: unit test + coverage + build.');
+
+        // 10a. Push branch hotfix lên remote TRƯỚC khi merge.
+        // Cần cho: link Telegram không 404, và có dấu vết fix trên remote.
         console.log(`[+] Đang push nhánh ${branchName} lên ${gitRepo}...`);
-        execSync(`git push -u ${pushUrl} ${branchName} --force`, { cwd: targetServiceDir, stdio: 'inherit' });
+        execSync(`git push -u ${pushUrl} ${branchName}`, { cwd: targetServiceDir, stdio: 'inherit' });
 
-        // 10. Tạo PR trên GitHub vào prodBranch của service
-        console.log(`[+] Tự động mở Pull Request vào ${prodBranch} trên ${gitRepo}...`);
-        const pr = await createPR(
-            gitRepo,
-            prodBranch,
-            branchName,
-            `[Auto-Fix] ${issueKey}: ${summary}`,
-            `Auto-generated fix by Claude Code for Jira ticket **${issueKey}**.\n\nSummary: ${summary}\nDev Branch: \`${devBranch}\`\nProd Target: \`${prodBranch}\``
-        );
+        // 10b. Merge branch hotfix vào nhánh target (staging) rồi push.
+        console.log(`[+] Merge ${branchName} vào ${baseBranch}...`);
+        execSync(`git checkout ${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        execSync(`git pull --ff-only origin ${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        try {
+            execSync(`git merge --no-ff -m "${commitPrefix}: merge ${branchName} into ${baseBranch} [AUTO-BUG]" ${branchName}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        } catch (mergeErr) {
+            // Conflict → abort để repo KHÔNG kẹt ở trạng thái MERGING.
+            try { execSync(`git merge --abort`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch (e) {}
+            throw new Error(`Merge ${branchName} vào ${baseBranch} thất bại (conflict): ${mergeErr.message}`);
+        }
+        try {
+            execSync(`git push ${pushUrl} ${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        } catch (pushErr) {
+            // Không được báo 'THÀNH CÔNG' khi push thất bại (vd non-fast-forward).
+            throw new Error(`Đã merge vào ${baseBranch} nhưng PUSH thất bại: ${pushErr.message}`);
+        }
+        console.log(`[+] Đã merge và push lên ${baseBranch}.`);
 
-        // Lưu PR info vào danh sách chờ
-        savePendingPR({
-            prNumber: pr.number,
-            branch: branchName,
-            issueKey: issueKey,
-            gitRepo: gitRepo,
-            devBranch: devBranch,
-            prodBranch: prodBranch,
-            targetServiceDir: targetServiceDir,
-            date: new Date().toISOString()
-        });
+        // 11. Kiểm tra pipeline CI/CD để xác nhận deploy staging.
+        // Repo chưa có CI → bước này BỎ QUA (status 'skipped'), không chặn.
+        const ci = await checkCiPipeline(gitRepo, baseBranch);
+        console.log(`[CI] ${ci.status}: ${ci.detail}`);
+        if (ci.status === 'failed') {
+            console.warn('[!] Pipeline thất bại — vẫn báo Telegram để người duyệt xử lý.');
+        }
 
-        // 11. Báo cáo Telegram kèm nút duyệt Merge
-        const keyboard = {
-            inline_keyboard: [
-                [
-                    { text: "🔀 Merge PR", callback_data: `merge|${pr.number}|${branchName}` },
-                    { text: "⏳ Lưu vào hàng đợi", callback_data: `defer|${pr.number}|${branchName}|${issueKey}` }
-                ],
-                [
-                    { text: isGitHubHost() ? "🔗 Xem PR trên GitHub" : "🔗 Xem PR/MR trên Git Host", url: pr.html_url }
-                ]
-            ]
-        };
+        // 12. Báo cáo Telegram. KHÔNG tạo PR lên prod (tạm thời bỏ qua).
+        const ciLine = ci.status === 'skipped'
+            ? `⏭️ <b>Pipeline:</b> ${ci.detail}`
+            : ci.status === 'ok'
+                ? `✅ <b>Pipeline:</b> ${ci.detail}`
+                : ci.status === 'running'
+                    ? `⏳ <b>Pipeline:</b> ${ci.detail}`
+                    : ci.status === 'timeout'
+                        ? `⏱️ <b>Pipeline:</b> ${ci.detail}`
+                        : `❌ <b>Pipeline:</b> ${ci.detail}`;
+
+        // Tiêu đề phải phản ánh đúng thực tế — không báo 'THÀNH CÔNG' khi pipeline lỗi.
+        const title = ci.status === 'ok'
+            ? `🚀 <b>ĐÃ FIX & DEPLOY LÊN ${baseBranch} THÀNH CÔNG!</b>`
+            : ci.status === 'skipped'
+                ? `✅ <b>ĐÃ FIX & MERGE LÊN ${baseBranch} (không có CI/CD để xác nhận deploy)</b>`
+                : ci.status === 'running' || ci.status === 'timeout'
+                    ? `🟡 <b>ĐÃ FIX & MERGE LÊN ${baseBranch} — CI chưa xác nhận deploy xong</b>`
+                    : `⚠️ <b>ĐÃ FIX & MERGE LÊN ${baseBranch} — NHƯNG PIPELINE THẤT BẠI</b>`;
 
         await sendTelegramMessage(
-            `🚀 <b>ĐÃ FIX & TẠO PR THÀNH CÔNG!</b>\n\n` +
+            `${title}\n\n` +
             `• <b>Ticket:</b> <code>${issueKey}</code>\n` +
             `• <b>Service:</b> <code>${targetService}</code> (${gitRepo})\n` +
             `• <b>Summary:</b> ${summary}\n` +
-            `• <b>Branch:</b> <code>${branchName}</code> -> <code>${prodBranch}</code>\n` +
-            `• <b>Pull Request:</b> <a href="${pr.html_url}">#${pr.number}</a>\n\n` +
-            `<i>Chọn hành động bên dưới:</i>`,
-            keyboard
+            `• <b>Branch đã sửa:</b> <code>${branchName}</code> (base: <code>${baseBranch}</code>)\n` +
+            `• <b>Xác minh:</b> unit test + coverage + build đều PASS\n` +
+            `• <b>Đã merge:</b> <code>${baseBranch}</code>\n` +
+            `${ciLine}\n\n` +
+            `<i>Chưa tạo PR lên production (tạm thời bỏ qua theo yêu cầu).</i>`,
+            {
+                inline_keyboard: [
+                    [
+                        { text: `🔗 Xem branch ${branchName}`, url: buildWebUrl(gitRepo, branchName) }
+                    ]
+                ]
+            }
         );
 
-        // 12. Cập nhật Jira
+        // 13. Cập nhật Jira
         await addJiraComment(
             issueKey,
-            `✅ [Auto-Fix Bot] Đã tạo Pull Request sửa lỗi thành công!\n\n` +
+            `✅ [Auto-Fix Bot] Đã sửa lỗi và deploy lên ${baseBranch} thành công!\n\n` +
             `- Repository: ${gitRepo}\n` +
-            `- PR: ${pr.html_url}\n` +
-            `- Branch: ${branchName} -> ${prodBranch}\n` +
-            `- Chờ review và duyệt merge vào production.`
+            `- Branch: ${branchName} -> đã merge vào ${baseBranch}\n` +
+            `- Xác minh: unit test + coverage + build đều PASS\n` +
+            `- Pipeline: ${ci.status} — ${ci.detail}\n` +
+            `- Chưa tạo PR lên production (tạm thời bỏ qua).`
         );
 
     } finally {
-        // Luôn dọn dẹp worktree sau khi xử lý xong (remove fail -> prune + xóa thư mục mồ côi)
-        console.log(`[+] Dọn dẹp Git Worktree .worktrees/${branchName}...`);
+        // Dọn evidence/ do AI tạo trong repo service (đã copy sang WORKER_ROOT).
+        // Nếu để lại → untracked → dirty-guard chặn mọi job sau.
         try {
-            execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
-        } catch(e) {
-            console.warn(`[!] Không thể xóa worktree .worktrees/${branchName}: ${e.message}`);
-        }
-        try { execSync(`git worktree prune`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch(err) {}
+            fs.rmSync(path.join(targetServiceDir, 'evidence', issueKey), { recursive: true, force: true });
+        } catch (e) { console.warn(`[!] Không dọn được evidence/: ${e.message}`); }
+        // Restore ĐÚNG branch user đang làm việc (không phải baseBranch).
         try {
-            const orphanDir = path.join(targetServiceDir, '.worktrees', branchName);
-            if (fs.existsSync(orphanDir)) fs.rmSync(orphanDir, { recursive: true, force: true });
-        } catch(err) {}
+            const restore = originalBranch && originalBranch !== 'HEAD' ? originalBranch : baseBranch;
+            execSync(`git checkout ${restore}`, { cwd: targetServiceDir, stdio: 'pipe' });
+        } catch (e) { console.warn(`[!] Không checkout lại branch gốc: ${e.message}`); }
     }
 }
 
 // --- KHỞI ĐỘNG HỆ THỐNG (SINGLETON MASTER) ---
-console.log("🚀 Singleton Master Worker Level 3 đã sẵn sàng...");
-console.log(`• MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS}`);
-pollTelegramUpdates();
+// Xác thực Jira TRƯỚC khi vào vòng lặp: token sai → /search/jql vẫn trả 200 + issues rỗng
+// → worker sẽ log "Tìm thấy 0 bug" mỗi 15s một cách âm thầm.
+(async function bootstrap() {
+    await validateJiraAuth();
+    console.log("🚀 Singleton Master Worker Level 3 đã sẵn sàng...");
+    console.log(`• MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS}`);
+    pollTelegramUpdates();
 
-(async function masterLoop() {
     while (true) {
         if (!isScanning) {
             isScanning = true;

@@ -28,3 +28,9 @@ services-2/cms-api/
 services-2/cms-web/
 services/shop-api/
 services/shop-web/
+
+# Settings do worker sinh lúc chạy (chứa đường dẫn tuyệt đối của máy)
+.claude/settings.generated.json
+
+# Thùng rác (file đã bị loại khỏi repo — giữ lại để có thể khôi phục, không commit)
+.trash/

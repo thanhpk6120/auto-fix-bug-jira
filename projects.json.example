@@ -1,21 +1,32 @@
 {
   "_comment": "projects.json - Cấu hình danh mục dự án cho Singleton Master Worker (worker.js). Khống chế số lượng job AI chạy đồng thời bằng biến môi trường MAX_CONCURRENT_JOBS (mặc định: 2).",
   "_comment_projects": "Mảng danh sách các dự án mà Singleton Master Worker sẽ giám sát và xử lý.",
-  "_comment_projectKey": "Key dự án trên Jira (ví dụ KANBAN, ECOM) để worker filter issue (JQL).",
-  "_comment_path": "Đường dẫn tương đối từ root tới thư mục dự án ('.' cho repo gốc, 'services-2' cho sub-project).",
+  "_comment_projectKey": "Key dự án trên Jira (ví dụ SHOP, CMS) để worker filter issue (JQL).",
+  "_comment_root": "Thư mục gốc của dự án. TUYỆT ĐỐI (vd 'D:/work/acme') hoặc TƯƠNG ĐỐI so với thư mục worker (vd '../acme'). Bỏ trống = thư mục worker.",
+  "_comment_path": "Đường dẫn tới thư mục dự án: TUYỆT ĐỐI (vd 'D:/work/acme') hoặc TƯƠNG ĐỐI so với `root` (vd 'src' cho monorepo, 'services' cho multi-repo).",
+  "_comment_gh_quan_ly": "Khi dùng worker cho nhiều dự án khác nhau: giữ worker ở một thư mục riêng, mỗi dự án khai 1 entry với root/path trỏ tới nơi chứa services.json của dự án đó.",
   "_MAX_CONCURRENT_JOBS_EXAMPLE": "Trong file .env, thêm dòng: MAX_CONCURRENT_JOBS=2",
   "projects": [
     {
-      "projectKey": "KANBAN",
-      "path": ".",
-      "name": "Dự án Kanban Board chính",
-      "description": "Repo gốc chứa services/api (Spring Boot) và services/web (React Vite)"
+      "projectKey": "SHOP",
+      "root": ".",
+      "path": "services",
+      "name": "SHOP (Main Service)",
+      "description": "Thư mục services chứa shop-api (Spring Boot 8080) và shop-web (React Vite 5173)"
     },
     {
-      "projectKey": "ECOM",
+      "projectKey": "CMS",
+      "root": ".",
       "path": "services-2",
-      "name": "Dự án Thương mại điện tử E-Commerce",
-      "description": "Thư mục services-2 chứa api (Spring Boot 8081) và web (React 5174)"
+      "name": "CMS (Service 2)",
+      "description": "Thư mục services-2 chứa cms-api (Spring Boot 8081) và cms-web (React Vite 5174)"
+    },
+    {
+      "_comment": "Ví dụ dự án nằm NGOÀI thư mục worker — path tuyệt đối, không cần root.",
+      "projectKey": "ACME",
+      "path": "D:/work/acme",
+      "name": "ACME (dự án ngoài worker)",
+      "description": "services.json nằm ở D:/work/acme/services.json"
     }
   ]
 }
