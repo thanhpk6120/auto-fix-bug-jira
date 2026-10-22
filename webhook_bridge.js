@@ -107,12 +107,18 @@ async function handleWebhook(req, res, parsedUrl) {
         const webUrl = body.issue ? body.issue.web_url : (body.url || '');
         const projectSlug = body.project_name || body.project_slug || body.project || 'project';
 
-        // Bộ lọc lỗi nghiệp vụ: không tạo Bug Jira cho lỗi người dùng nhập sai, validation, 401, 403, 404
-        const businessErrorPattern = /MethodArgumentNotValid|IllegalArgument|IllegalState|NoResourceFound|HttpMessageNotReadable|MissingRequestHeader|BadCredentials|AccessDenied|IdempotencyConflict|Validation/i;
-        if (businessErrorPattern.test(issueTitle) || businessErrorPattern.test(culprit)) {
-            console.log(`[Webhook Bridge] ⏩ BỎ QUA sự kiện lỗi nghiệp vụ: "${issueTitle}". Không tạo bug trên Jira.`);
+        // Bộ lọc lỗi nghiệp vụ thông minh:
+        // - Bỏ qua lỗi nhập liệu form / thiếu header / 404 thuần túy từ client.
+        // - TUY NHIÊN: nếu lỗi 400 phát sinh từ tầng Service (logic nghiệp vụ) hoặc lỗi gọi sang đối tác ngân hàng (outbound) thì VẪN TẠO BUG!
+        const tags = (body.issue && body.issue.tags) || (body.event && body.event.tags) || [];
+        const isWhitelistedBug = tags.some(t => Array.isArray(t) && (t[0] === 'bug_category' || t[1] === 'service_logic_400' || t[1] === 'partner_outbound_error'));
+        const fromServiceLayer = /\.service\.|\.client\.|\.process\./i.test(culprit);
+
+        const pureClientErrorPattern = /MethodArgumentNotValid|MethodArgumentTypeMismatch|MissingServletRequestParameter|MissingRequestHeader|NoResourceFound|BadCredentials|AccessDenied/i;
+        if (!isWhitelistedBug && !fromServiceLayer && pureClientErrorPattern.test(issueTitle)) {
+            console.log(`[Webhook Bridge] ⏩ BỎ QUA sự kiện lỗi nhập liệu / client: "${issueTitle}". Không tạo bug trên Jira.`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ skipped: true, reason: 'Business/validation error ignored' }));
+            return res.end(JSON.stringify({ skipped: true, reason: 'Client validation/input error ignored' }));
         }
 
         const queryService = parsedUrl.query && parsedUrl.query.service;
