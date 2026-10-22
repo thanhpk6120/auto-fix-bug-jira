@@ -599,7 +599,7 @@ async function checkJiraForBugs() {
 
         try {
             const { projectKey } = project;
-            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog", "Open", "RE OPENED") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND labels != "auto-fix-processing" AND labels != "auto-fix-done" AND labels != "auto-fix-failed"`;
+            const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog", "Open", "RE OPENED") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND (labels NOT IN ("auto-fix-processing", "auto-fix-done", "auto-fix-failed") OR labels IS EMPTY)`;
             const searchUrl = `https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/${JIRA_SEARCH_PATH}?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
             console.log(`[+] Đang quét Jira cho dự án ${projectKey}...`);
             const res = await fetch(searchUrl, {
@@ -618,10 +618,15 @@ async function checkJiraForBugs() {
 
             if (issues.length > 0) {
                 const issue = issues[0];
-                const serviceLabel = (issue.fields.labels || []).find(l => l.startsWith('service:'));
+                const currentLabels = issue.fields.labels || [];
+                // Phòng thủ nhiều tầng: bỏ qua nếu ticket đã chứa nhãn kết quả/đang xử lý
+                if (currentLabels.some(l => ['auto-fix-processing', 'auto-fix-done', 'auto-fix-failed'].includes(l))) {
+                    continue;
+                }
+
+                const serviceLabel = currentLabels.find(l => l.startsWith('service:'));
                 const targetService = serviceLabel ? serviceLabel.split(':')[1] : null;
                 const serviceLockKey = targetService ? `${projectKey}:${targetService}` : null;
-
                 // Per-service lock: tránh 2 job cùng mutate một repo service khi MAX_CONCURRENT_JOBS > 1
                 if (serviceLockKey && activeServiceLocks.has(serviceLockKey)) {
                     console.log(`[!] Service '${serviceLockKey}' đang được xử lý bởi job khác. Tạm hoãn ${issue.key} sang chu kỳ sau.`);
