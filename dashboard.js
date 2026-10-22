@@ -37,41 +37,48 @@ let workerProcess = null;
 
 // Hàm kiểm tra tiến trình worker có đang sống trên OS không
 function getRunningWorkerInfo() {
+    let pidToCheck = null;
+
     // 1. Kiểm tra qua workerProcess của dashboard nếu tự spawn
     if (workerProcess && !workerProcess.killed && workerProcess.exitCode === null) {
-        return { running: true, pid: workerProcess.pid, source: 'managed' };
-    }
-
-    // 2. Kiểm tra qua PID file nếu có
-    if (fs.existsSync(PID_FILE)) {
+        pidToCheck = workerProcess.pid;
+    } else if (fs.existsSync(PID_FILE)) {
         try {
             const savedPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-            if (!isNaN(savedPid)) {
-                try {
-                    process.kill(savedPid, 0); // Kiểm tra PID còn tồn tại không
-                    return { running: true, pid: savedPid, source: 'pidfile' };
-                } catch (e) {
-                    // PID không tồn tại nữa
-                }
-            }
+            if (!isNaN(savedPid)) pidToCheck = savedPid;
         } catch (e) {}
     }
 
-    // 3. Quét hệ thống tìm tiến trình node đang chạy worker.js (Windows)
-    try {
-        const cmd = `powershell -NoProfile -Command "Get-Process node -ErrorAction SilentlyContinue | ForEach-Object { \\"$($_.Id)|$($_.CommandLine)\\" }"`;
-        const output = execSync(cmd, { encoding: 'utf8', timeout: 3000 });
-        for (const line of output.split(/\r?\n/)) {
-            if (line.includes('worker.js') && !line.includes('dashboard.js')) {
-                const pid = parseInt(line.split('|')[0], 10);
-                if (!isNaN(pid)) {
-                    // Cập nhật lại pidfile
-                    fs.writeFileSync(PID_FILE, pid.toString(), 'utf8');
-                    return { running: true, pid, source: 'os_scan' };
+    // 2. Xác thực PID có đúng là tiến trình node chạy worker.js hay không
+    if (pidToCheck) {
+        try {
+            if (process.platform === 'win32') {
+                const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"ProcessId = ${pidToCheck}\\" | Select-Object -ExpandProperty CommandLine"`;
+                const cmdLine = execSync(cmd, { encoding: 'utf8', timeout: 3000 }).trim();
+                if (cmdLine.includes('worker.js') && !cmdLine.includes('dashboard.js')) {
+                    return { running: true, pid: pidToCheck, source: 'verified_pid' };
                 }
+            } else {
+                process.kill(pidToCheck, 0);
+                return { running: true, pid: pidToCheck, source: 'posix_pid' };
             }
-        }
-    } catch (e) {}
+        } catch (e) {}
+        // PID không còn sống hoặc không phải worker -> dọn dẹp file PID cũ
+        if (fs.existsSync(PID_FILE)) try { fs.unlinkSync(PID_FILE); } catch (e) {}
+    }
+
+    // 3. Quét hệ thống tìm tiến trình node đang chạy worker.js nếu chưa có PID file
+    if (process.platform === 'win32') {
+        try {
+            const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*worker.js*' } | Select-Object -ExpandProperty ProcessId"`;
+            const output = execSync(cmd, { encoding: 'utf8', timeout: 3000 }).trim();
+            const firstPid = parseInt(output.split(/\r?\n/)[0], 10);
+            if (!isNaN(firstPid)) {
+                fs.writeFileSync(PID_FILE, firstPid.toString(), 'utf8');
+                return { running: true, pid: firstPid, source: 'os_scan' };
+            }
+        } catch (e) {}
+    }
 
     return { running: false, pid: null };
 }
@@ -83,21 +90,13 @@ function startWorker() {
         return { success: false, message: `Worker đang chạy với PID: ${info.pid}`, pid: info.pid };
     }
 
-    const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
-    const logPrefix = `\n==================== KHỞI ĐỘNG WORKER [${new Date().toLocaleString('vi-VN')}] ====================\n`;
-    logStream.write(logPrefix);
-
-    const isWindows = process.platform === 'win32';
-    const nodeExecutable = process.execPath; // Đường dẫn node hiện tại
+    const nodeExecutable = process.execPath;
 
     workerProcess = spawn(nodeExecutable, ['--env-file=.env', 'worker.js'], {
         cwd: __dirname,
         detached: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: 'ignore'
     });
-
-    workerProcess.stdout.pipe(logStream);
-    workerProcess.stderr.pipe(logStream);
 
     fs.writeFileSync(PID_FILE, workerProcess.pid.toString(), 'utf8');
 

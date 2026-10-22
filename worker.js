@@ -19,6 +19,51 @@ if (fs.existsSync(envPath)) {
         console.warn(`[!] Không đọc được file .env: ${e.message}`);
     }
 }
+
+// Ghi nhận PID và Mirror log ra file evidences/worker.log để Dashboard theo dõi
+const PID_FILE = path.join(__dirname, 'evidences', 'worker.pid');
+const LOG_FILE = path.join(__dirname, 'evidences', 'worker.log');
+try {
+    fs.mkdirSync(path.join(__dirname, 'evidences'), { recursive: true });
+    fs.writeFileSync(PID_FILE, process.pid.toString(), 'utf8');
+} catch (e) {}
+
+const cleanPidFile = () => {
+    try {
+        if (fs.existsSync(PID_FILE)) {
+            const currentSaved = fs.readFileSync(PID_FILE, 'utf8').trim();
+            if (currentSaved === process.pid.toString()) {
+                fs.unlinkSync(PID_FILE);
+            }
+        }
+    } catch (e) {}
+};
+process.on('exit', cleanPidFile);
+process.on('SIGINT', () => { cleanPidFile(); process.exit(0); });
+process.on('SIGTERM', () => { cleanPidFile(); process.exit(0); });
+
+try {
+    const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+
+    process.stdout.write = function (chunk, encoding, callback) {
+        try { logStream.write(chunk); } catch (e) {}
+        return origStdoutWrite(chunk, encoding, callback);
+    };
+    process.stderr.write = function (chunk, encoding, callback) {
+        try { logStream.write(chunk); } catch (e) {}
+        return origStderrWrite(chunk, encoding, callback);
+    };
+} catch (e) {
+    console.warn(`[!] Không khởi tạo được log stream: ${e.message}`);
+}
+
+function getTimestamp() {
+    const d = new Date();
+    const pad = n => n.toString().padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 // File settings do WORKER sở hữu, nằm ngoài repo service.
 // Claude Code nạp chúng qua --settings / --append-system-prompt → KHÔNG cần ghi
 // file nào vào repo của khách (không để lại CLAUDE.md / .claude/ lạ trong PR).
@@ -590,10 +635,10 @@ async function ensureAICommittedItself(branchName, context, worktreeDir, baseBra
 
 async function checkJiraForBugs() {
     if (activeJobs >= MAX_CONCURRENT_JOBS) {
-        console.log(`[!] Hệ thống đang đầy tải (${activeJobs}/${MAX_CONCURRENT_JOBS}). Bỏ qua chu kỳ quét.`);
+        console.log(`[${getTimestamp()}] [!] Hệ thống đang đầy tải (${activeJobs}/${MAX_CONCURRENT_JOBS}). Bỏ qua chu kỳ quét.`);
         return;
     }
-    
+
     for (const project of projectsConfig) {
         if (activeJobs >= MAX_CONCURRENT_JOBS) break;
 
@@ -601,21 +646,20 @@ async function checkJiraForBugs() {
             const { projectKey } = project;
             const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog", "Open", "RE OPENED") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND (labels NOT IN ("auto-fix-processing", "auto-fix-done", "auto-fix-failed") OR labels IS EMPTY)`;
             const searchUrl = `https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/${JIRA_SEARCH_PATH}?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
-            console.log(`[+] Đang quét Jira cho dự án ${projectKey}...`);
+            console.log(`[${getTimestamp()}] Đang quét Jira cho dự án ${projectKey}...`);
             const res = await fetch(searchUrl, {
                 method: 'GET',
                 headers: { 'Authorization': authHeader, 'Accept': 'application/json' }
             });
 
             if (!res.ok) {
-                console.error(`[!] Lỗi tìm kiếm Jira (${projectKey}): HTTP ${res.status} - ${await res.text()}`);
+                console.error(`[${getTimestamp()}] [!] Lỗi tìm kiếm Jira (${projectKey}): HTTP ${res.status} - ${await res.text()}`);
                 continue;
             }
 
             const data = await res.json();
             const issues = data.issues || [];
-            console.log(`[+] Tìm thấy ${issues.length} bug cho dự án ${projectKey}`);
-
+            console.log(`[${getTimestamp()}] Tìm thấy ${issues.length} bug cho dự án ${projectKey}`);
             if (issues.length > 0) {
                 const issue = issues[0];
                 const currentLabels = issue.fields.labels || [];
@@ -629,12 +673,11 @@ async function checkJiraForBugs() {
                 const serviceLockKey = targetService ? `${projectKey}:${targetService}` : null;
                 // Per-service lock: tránh 2 job cùng mutate một repo service khi MAX_CONCURRENT_JOBS > 1
                 if (serviceLockKey && activeServiceLocks.has(serviceLockKey)) {
-                    console.log(`[!] Service '${serviceLockKey}' đang được xử lý bởi job khác. Tạm hoãn ${issue.key} sang chu kỳ sau.`);
+                    console.log(`[${getTimestamp()}] [!] Service '${serviceLockKey}' đang được xử lý bởi job khác. Tạm hoãn ${issue.key} sang chu kỳ sau.`);
                     continue;
                 }
 
-                console.log(`[+] Đang gắn nhãn auto-fix-processing cho ${issue.key}...`);
-                // Claim lock: gắn nhãn auto-fix-processing. BẮT BUỘC kiểm tra res.ok —
+                console.log(`[${getTimestamp()}] [+] Đang gắn nhãn auto-fix-processing cho ${issue.key}...`);
                 // fetch chỉ throw khi lỗi mạng, HTTP 401/403/400 sẽ bị nuốt im lặng
                 // và ticket tiếp tục khớp JQL ở vòng 15s sau → xử lý trùng vô hạn.
                 try {
@@ -655,7 +698,7 @@ async function checkJiraForBugs() {
 
                 if (serviceLockKey) activeServiceLocks.add(serviceLockKey);
                 activeJobs++;
-                console.log(`[+] Giao việc thành công: ${issue.key}. Active jobs: ${activeJobs}`);
+                console.log(`[${getTimestamp()}] [+] Giao việc thành công: ${issue.key}. Active jobs: ${activeJobs}`);
 
                 processBugWrapper(issue, project, serviceLockKey).catch(e => {
                     console.error(`Worker crash nền tại ticket ${issue.key}:`, e);
