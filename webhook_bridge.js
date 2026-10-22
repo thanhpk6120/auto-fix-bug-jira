@@ -102,7 +102,8 @@ app.post('/webhook/:projectKey', async (req, res) => {
             issuetype: { name: 'Bug' },
             summary: `[AUTO-BUG] ${issueTitle}`,
             description: descriptionPayload,
-            labels: ['auto-fix', serviceLabel]
+            labels: ['auto-fix', serviceLabel],
+            ...(!isJiraCloud ? { customfield_10600: { value: 'Moderate' } } : {})
         }
     };
 
