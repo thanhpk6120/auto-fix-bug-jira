@@ -1079,20 +1079,19 @@ async function processBug(issueKey, summary, description, attachments, projectCo
 
     const devBranch = serviceConfig.branches.dev;
     const prodBranch = serviceConfig.branches.prod;
-    const targetBranch = serviceConfig.branches.target || '';
+    const targetBranch = serviceConfig.branches.target || serviceConfig.branches.dev || 'master';
+    const stagingBranch = serviceConfig.branches.staging || targetBranch;
+    const sourceTarget = serviceConfig.branches.source_target;
+    const sourceStaging = serviceConfig.branches.source_staging;
     const gitRepo = serviceConfig.gitRepo;
     const pushUrl = buildRemoteUrl(gitRepo);
 
     // Tên branch có timestamp để mỗi lần retry tạo branch MỚI, không ghi đè lịch sử cũ trên remote.
-    // Trước đây: `hotfix/<KEY>` + `git branch -D` + `push --force` → mỗi lần retry xoá sạch
-    // commit cũ đã push lên remote (và người khác đang review PR cũ sẽ mất ref).
     // Định dạng: hotfix/<KEY>-<YYYYMMDD-HHMMSS>
     const runStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
     const branchName = `hotfix/${issueKey}-${runStamp}`;
-    // KHÔNG dùng git worktree: tạo branch trực tiếp trong repo service.
-    // Base của branch = nhánh target (staging) — sửa code TRÊN nhánh target.
-    const baseBranch = targetBranch || devBranch;
-    // Thư mục làm việc = repo service (đã checkout branch hotfix).
+    // Base của branch = nhánh target — sửa code TRÊN nhánh target.
+    const baseBranch = targetBranch;
     const worktreeDir = targetServiceDir;
 
     console.log(`\n========================================`);
@@ -1136,7 +1135,26 @@ async function processBug(issueKey, summary, description, attachments, projectCo
             );
         }
 
-        // 4. Tạo branch hotfix TRỰC TIẾP trong repo service, base = origin/<target>.
+        // 4a. ĐỒNG BỘ SOURCE_TARGET VÀO TARGET (nếu có cấu hình source_target):
+        // Trước khi phân tích và fix bug thì phải pull code mới ở cả target và source_target
+        // rồi merge từ source_target vào target trước để cập nhật code mới nhất.
+        if (sourceTarget && targetBranch) {
+            console.log(`[+] Đồng bộ source_target: fetch ${targetBranch} & ${sourceTarget}, merge ${sourceTarget} -> ${targetBranch}...`);
+            execSync(`git fetch origin ${targetBranch}`, { cwd: targetServiceDir, stdio: 'pipe' });
+            execSync(`git fetch origin ${sourceTarget}`, { cwd: targetServiceDir, stdio: 'pipe' });
+            execSync(`git checkout ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            execSync(`git pull --ff-only origin ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            try {
+                execSync(`git merge origin/${sourceTarget} -m "sync: merge origin/${sourceTarget} into ${targetBranch} before fix"`, { cwd: targetServiceDir, stdio: 'inherit' });
+            } catch (syncTargetErr) {
+                try { execSync(`git merge --abort`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch (e) {}
+                throw new Error(`Đồng bộ source_target thất bại (conflict khi merge origin/${sourceTarget} vào ${targetBranch}): ${syncTargetErr.message}`);
+            }
+            execSync(`git push ${pushUrl} ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            console.log(`[+] Đã đồng bộ ${sourceTarget} vào ${targetBranch} và push lên remote.`);
+        }
+
+        // 4b. Tạo branch hotfix TRỰC TIẾP trong repo service, base = origin/<target>.
         // KHÔNG xoá branch cũ: tên branch có timestamp nên mỗi lần chạy là một branch riêng.
         console.log(`[+] Tạo branch ${branchName} từ origin/${baseBranch}...`);
         try {
@@ -1253,29 +1271,68 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         console.log(`[+] Đang push nhánh ${branchName} lên ${gitRepo}...`);
         execSync(`git push -u ${pushUrl} ${branchName}`, { cwd: targetServiceDir, stdio: 'inherit' });
 
-        // 10b. Merge branch hotfix vào nhánh target (staging) rồi push.
-        console.log(`[+] Merge ${branchName} vào ${baseBranch}...`);
-        execSync(`git checkout ${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
-        execSync(`git pull --ff-only origin ${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        // 10b. Merge branch hotfix vào nhánh target rồi push.
+        console.log(`[+] Merge ${branchName} vào target (${targetBranch})...`);
+        execSync(`git checkout ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+        execSync(`git pull --ff-only origin ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
         try {
-            execSync(`git merge --no-ff -m "${commitPrefix}: merge ${branchName} into ${baseBranch} [AUTO-BUG]" ${branchName}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            execSync(`git merge --no-ff -m "${commitPrefix}: merge ${branchName} into ${targetBranch} [AUTO-BUG]" ${branchName}`, { cwd: targetServiceDir, stdio: 'inherit' });
         } catch (mergeErr) {
             // Conflict → abort để repo KHÔNG kẹt ở trạng thái MERGING.
             try { execSync(`git merge --abort`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch (e) {}
-            throw new Error(`Merge ${branchName} vào ${baseBranch} thất bại (conflict): ${mergeErr.message}`);
+            throw new Error(`Merge ${branchName} vào ${targetBranch} thất bại (conflict): ${mergeErr.message}`);
         }
         try {
-            execSync(`git push ${pushUrl} ${baseBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            execSync(`git push ${pushUrl} ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
         } catch (pushErr) {
             // Không được báo 'THÀNH CÔNG' khi push thất bại (vd non-fast-forward).
-            throw new Error(`Đã merge vào ${baseBranch} nhưng PUSH thất bại: ${pushErr.message}`);
+            throw new Error(`Đã merge vào ${targetBranch} nhưng PUSH thất bại: ${pushErr.message}`);
         }
-        console.log(`[+] Đã merge và push lên ${baseBranch}.`);
+        console.log(`[+] Đã merge và push lên ${targetBranch}.`);
+
+        // 10c. ĐỒNG BỘ SOURCE_STAGING VÀ MERGE TARGET VÀO STAGING (nếu có staging khác target hoặc source_staging):
+        // Tương tự, trước khi merge từ target vào staging thì phải pull code mới của staging và source_staging
+        // và merge từ source_staging vào staging trước để cập nhật code mới nhất.
+        let deployedBranch = targetBranch;
+        if (stagingBranch && stagingBranch !== targetBranch) {
+            if (sourceStaging) {
+                console.log(`[+] Đồng bộ source_staging: fetch ${stagingBranch} & ${sourceStaging}, merge ${sourceStaging} -> ${stagingBranch}...`);
+                execSync(`git fetch origin ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'pipe' });
+                execSync(`git fetch origin ${sourceStaging}`, { cwd: targetServiceDir, stdio: 'pipe' });
+                execSync(`git checkout ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+                execSync(`git pull --ff-only origin ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+                try {
+                    execSync(`git merge origin/${sourceStaging} -m "sync: merge origin/${sourceStaging} into ${stagingBranch} before deploy"`, { cwd: targetServiceDir, stdio: 'inherit' });
+                } catch (syncStagingErr) {
+                    try { execSync(`git merge --abort`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch (e) {}
+                    throw new Error(`Đồng bộ source_staging thất bại (conflict khi merge origin/${sourceStaging} vào ${stagingBranch}): ${syncStagingErr.message}`);
+                }
+                execSync(`git push ${pushUrl} ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+                console.log(`[+] Đã đồng bộ ${sourceStaging} vào ${stagingBranch} và push lên remote.`);
+            }
+
+            // Merge từ targetBranch vào stagingBranch:
+            console.log(`[+] Merge ${targetBranch} vào staging (${stagingBranch})...`);
+            execSync(`git checkout ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            execSync(`git pull --ff-only origin ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            try {
+                execSync(`git merge --no-ff -m "${commitPrefix}: merge ${targetBranch} into ${stagingBranch} [AUTO-BUG]" ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            } catch (mergeStagingErr) {
+                try { execSync(`git merge --abort`, { cwd: targetServiceDir, stdio: 'pipe' }); } catch (e) {}
+                throw new Error(`Merge ${targetBranch} vào ${stagingBranch} thất bại (conflict): ${mergeStagingErr.message}`);
+            }
+            try {
+                execSync(`git push ${pushUrl} ${stagingBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            } catch (pushStagingErr) {
+                throw new Error(`Đã merge vào ${stagingBranch} nhưng PUSH thất bại: ${pushStagingErr.message}`);
+            }
+            console.log(`[+] Đã merge từ ${targetBranch} vào ${stagingBranch} và push lên remote.`);
+            deployedBranch = stagingBranch;
+        }
 
         // 11. Kiểm tra pipeline CI/CD để xác nhận deploy staging.
         // Repo chưa có CI → bước này BỎ QUA (status 'skipped'), không chặn.
-        const ci = await checkCiPipeline(gitRepo, baseBranch);
-        console.log(`[CI] ${ci.status}: ${ci.detail}`);
+        const ci = await checkCiPipeline(gitRepo, deployedBranch);
         if (ci.status === 'failed') {
             console.warn('[!] Pipeline thất bại — vẫn báo Telegram để người duyệt xử lý.');
         }
@@ -1293,12 +1350,12 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
 
         // Tiêu đề phải phản ánh đúng thực tế — không báo 'THÀNH CÔNG' khi pipeline lỗi.
         const title = ci.status === 'ok'
-            ? `🚀 <b>ĐÃ FIX & DEPLOY LÊN ${baseBranch} THÀNH CÔNG!</b>`
+            ? `🚀 <b>ĐÃ FIX & DEPLOY LÊN ${deployedBranch} THÀNH CÔNG!</b>`
             : ci.status === 'skipped'
-                ? `✅ <b>ĐÃ FIX & MERGE LÊN ${baseBranch} (không có CI/CD để xác nhận deploy)</b>`
+                ? `✅ <b>ĐÃ FIX & MERGE LÊN ${deployedBranch} (không có CI/CD để xác nhận deploy)</b>`
                 : ci.status === 'running' || ci.status === 'timeout'
-                    ? `🟡 <b>ĐÃ FIX & MERGE LÊN ${baseBranch} — CI chưa xác nhận deploy xong</b>`
-                    : `⚠️ <b>ĐÃ FIX & MERGE LÊN ${baseBranch} — NHƯNG PIPELINE THẤT BẠI</b>`;
+                    ? `🟡 <b>ĐÃ FIX & MERGE LÊN ${deployedBranch} — CI chưa xác nhận deploy xong</b>`
+                    : `⚠️ <b>ĐÃ FIX & MERGE LÊN ${deployedBranch} — NHƯNG PIPELINE THẤT BẠI</b>`;
 
         await sendTelegramMessage(
             `${title}\n\n` +
@@ -1307,7 +1364,7 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
             `• <b>Summary:</b> ${summary}\n` +
             `• <b>Branch đã sửa:</b> <code>${branchName}</code> (base: <code>${baseBranch}</code>)\n` +
             `• <b>Xác minh:</b> unit test + coverage + build đều PASS\n` +
-            `• <b>Đã merge:</b> <code>${baseBranch}</code>\n` +
+            `• <b>Đã merge:</b> <code>${deployedBranch}</code>\n` +
             `${ciLine}\n\n` +
             `<i>Chưa tạo PR lên production (tạm thời bỏ qua theo yêu cầu).</i>`,
             {
@@ -1322,7 +1379,7 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         // 13. Cập nhật Jira
         await addJiraComment(
             issueKey,
-            `✅ [Auto-Fix Bot] Đã sửa lỗi và deploy lên ${baseBranch} thành công!\n\n` +
+            `✅ [Auto-Fix Bot] Đã sửa lỗi và deploy lên ${deployedBranch} thành công!\n\n` +
             `- Repository: ${gitRepo}\n` +
             `- Branch: ${branchName} -> đã merge vào ${baseBranch}\n` +
             `- Xác minh: unit test + coverage + build đều PASS\n` +

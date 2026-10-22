@@ -2,10 +2,9 @@
   "projects": [
     {
       "projectKey": "PHUB",
-      "root": "..",
-      "path": "services",
+      "path": "D:/Project/BankHub/services",
       "name": "PartnerHub (BankHub Platform)",
-      "description": "Nền tảng ngân hàng mở và cổng tích hợp đa ngân hàng (19 microservices tại D:/Project/BankHub/services)"
+      "description": "Nền tảng ngân hàng mở và cổng tích hợp đa ngân hàng (23 microservices tại D:/Project/BankHub/services)"
     }
   ]
 }
