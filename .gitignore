@@ -5,6 +5,7 @@
 # Cache and temporary files
 local_cache/
 evidence/
+evidences/
 .worktrees/
 pending-prs.json
 
