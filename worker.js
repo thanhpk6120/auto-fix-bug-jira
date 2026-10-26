@@ -511,9 +511,45 @@ const PENDING_FILE = path.join(__dirname, 'pending-prs.json');
 const evidenceHelper = require('./evidence.js');
 
 
+const getReproPrompt = () => "Reproduce the bug. Priority: 1. Read Jira description for domain/URL and error details. 2. If no URL or access fails, inspect source code and test locally. 3. SAVE EVIDENCE logs into the directory 'evidence/{JIRA_KEY}/before' (create it; it is relative to your current working directory, which is the service repo). The evidence MUST be real files produced by the reproduction (stack trace, log output, failing test output) - an empty or placeholder file does not count. 4. IF CANNOT REPRODUCE, clearly explain the exact reasons in Vietnamese (e.g. source code inspection findings, all unit tests pass, synthetic/fake test event, missing endpoints, etc.), and STOP by printing: [AI_STOP] <Detailed explanation in Vietnamese of why the bug cannot be reproduced>";
 
-const getReproPrompt = () => "Reproduce the bug. Priority: 1. Read Jira description for domain/URL and error details. 2. If no URL or access fails, inspect source code and test locally. 3. SAVE EVIDENCE logs into the directory 'evidence/{JIRA_KEY}/before' (create it; it is relative to your current working directory, which is the service repo). The evidence MUST be real files produced by the reproduction (stack trace, log output, failing test output) - an empty or placeholder file does not count. 4. IF CANNOT REPRODUCE, STOP AND PRINT: [AI_STOP] REPRO_FAILED";
+// Trích xuất lý do AI không thể tái hiện lỗi từ output của Claude
+function extractReproStopReason(output) {
+    if (!output) return 'Không thể tái hiện lỗi.';
 
+    // 1. Kiểm tra phần sau [AI_STOP]
+    if (output.includes('[AI_STOP]')) {
+        const afterMatch = output.match(/\[AI_STOP\]\s*([\s\S]*)/);
+        let afterText = afterMatch ? afterMatch[1].trim() : '';
+        if (afterText.startsWith('REPRO_FAILED')) {
+            afterText = afterText.replace(/^REPRO_FAILED\s*:?-?/, '').trim();
+        }
+        if (afterText.length > 20) {
+            return afterText;
+        }
+    }
+
+    // 2. Lấy đoạn văn bản giải thích của AI trước [AI_STOP] hoặc ở cuối output
+    const rawText = output.includes('[AI_STOP]') ? output.split(/\[AI_STOP\]/)[0] : output;
+    const lines = rawText.split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('[TOOL CALL]') && !l.startsWith('[TOOL RESULT]') && !l.startsWith('[AGENT THOUGHT]') && !l.startsWith('[Pre-flight]'));
+
+    if (lines.length > 0) {
+        const candidates = [];
+        for (let i = lines.length - 1; i >= 0 && candidates.length < 8; i--) {
+            const line = lines[i];
+            if (line.includes('---') && candidates.length > 0) break;
+            candidates.unshift(line);
+        }
+        const explanation = candidates.join('\n').trim();
+        if (explanation.length > 15) {
+            return explanation;
+        }
+    }
+
+    return 'AI không thể tái hiện lỗi trong mã nguồn hoặc môi trường hiện tại.';
+}
 // Thiếu cấu hình bắt buộc → phải chết NGAY lúc khởi động.
 // Trước đây chỉ console.warn rồi vẫn chạy: Jira trả HTTP 200 + issues rỗng khi token sai
 // → worker log "Tìm thấy 0 bug" mỗi 15s, người dùng tưởng hệ thống ổn.
@@ -989,24 +1025,12 @@ async function checkJiraForBugs() {
 }
 
 function buildDetailedJiraFailComment(ctx, err) {
-    const timeStr = getTimestamp();
-    const serviceStr = ctx.targetService ? `${ctx.targetService} (${ctx.gitRepo || 'N/A'})` : 'Chưa xác định';
-    const branchStr = ctx.branchName ? `${ctx.branchName} (Base: ${ctx.baseBranch || 'N/A'})` : 'Chưa tạo';
-
-    return `❌ *[Auto-Fix Bot] Quá trình tự động sửa lỗi THẤT BẠI* (${timeStr})\n\n` +
-        `*Thông tin bối cảnh:*\n` +
-        `- *Dự án:* ${ctx.projectName}\n` +
-        `- *Service:* ${serviceStr}\n` +
-        `- *Branch hotfix:* ${branchStr}\n` +
-        `- *Bước thất bại:* ${ctx.step}\n\n` +
-        `*Chi tiết lỗi:*\n` +
-        `{code}\n` +
-        `${err.message || 'Lỗi không xác định'}\n` +
-        `{code}\n\n` +
-        `💡 *Khuyến nghị cho On-call Engineer:*\n` +
-        `1. Kiểm tra log chi tiết trong worker console hoặc thư mục evidence/${ctx.issueKey}/before/.\n` +
-        `2. Kiểm tra branch hotfix ${ctx.branchName || 'N/A'} trên local/remote nếu cần tiếp tục xử lý.\n` +
-        `3. Ticket đã được gắn nhãn auto-fix-failed để tránh worker quét lặp lại.`;
+    const cleanReason = (err.message || 'Lỗi không xác định').trim();
+    const stepLine = ctx.step ? `*Bước gặp sự cố:* ${ctx.step}\n\n` : '';
+    return `❌ *[Auto-Fix Bot] Không thể tự động sửa lỗi*\n\n` +
+        stepLine +
+        `*Lý do:*\n` +
+        `${cleanReason}`;
 }
 
 async function sendTelegramFailureAlert(ctx, err) {
@@ -1676,8 +1700,8 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         const reproOutput = await runClaude(`Bug: ${summary}. ${reproPrompt}`, worktreeDir, CLAUDE_TIMEOUT, true);
         console.log(reproOutput);
         if (reproOutput.includes('[AI_STOP]')) {
-            const reason = reproOutput.match(/\[AI_STOP\]\s*(.*)/)?.[1] || "AI chủ động dừng tại bước Repro.";
-            throw new Error(`Repro aborted: ${reason}`);
+            const reason = extractReproStopReason(reproOutput);
+            throw new Error(reason.startsWith('Không thể tái hiện lỗi') ? reason : `Không thể tái hiện lỗi: ${reason}`);
         }
 
         // Thu thập evidence do Claude tạo trong worktree (cwd của Claude = worktree).
@@ -1690,7 +1714,11 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         const beforeFiles = evidenceHelper.listEvidenceFiles(issueKey, 'before');
         const aiEvidence = beforeFiles.filter(f => f !== `${issueKey}_error.txt`);
         if (aiEvidence.length === 0) {
-            throw new Error(`Repro fail: AI không tạo bằng chứng trong 'evidence/${issueKey}/before/' của worktree (đã thu thập ${collected.copied} file).`);
+            const reason = extractReproStopReason(reproOutput);
+            if (reason && reason !== 'AI không thể tái hiện lỗi trong mã nguồn hoặc môi trường hiện tại.') {
+                throw new Error(reason.startsWith('Không thể tái hiện lỗi') ? reason : `Không thể tái hiện lỗi: ${reason}`);
+            }
+            throw new Error(`Không thể tái hiện lỗi: AI không tạo bằng chứng trong 'evidence/${issueKey}/before/' của worktree (đã thu thập ${collected.copied} file).`);
         }
 
         // Thông báo tái hiện lỗi thành công
