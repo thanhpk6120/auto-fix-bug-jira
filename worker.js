@@ -1,4 +1,4 @@
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawnSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 // Tự động nạp file .env từ thư mục gốc của worker (chạy an toàn cả khi không dùng cờ --env-file)
@@ -92,31 +92,109 @@ function ensureWorkerSettings() {
 }
 
 function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false) {
-    const args = ['-p', prompt, '--model', CLAUDE_MODEL, '--dangerously-skip-permissions'];
-    // Guardrail hook: nạp qua --settings (đường dẫn tuyệt đối, file của worker).
-    if (!fs.existsSync(WORKER_SETTINGS_FILE)) ensureWorkerSettings();
-    if (fs.existsSync(WORKER_SETTINGS_FILE)) {
-        args.push('--settings', WORKER_SETTINGS_FILE);
-    }
-    // Rules khoanh vùng bug: nạp như system prompt bổ sung.
-    if (fs.existsSync(WORKER_RULES_FILE)) {
-        args.push('--append-system-prompt', fs.readFileSync(WORKER_RULES_FILE, 'utf8'));
-    }
-    const options = {
-        cwd,
-        timeout,
-        encoding: 'utf8',
-        shell: false,
-        windowsHide: true,
-        stdio: captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit'
-    };
-    const res = spawnSync('claude', args, options);
-    if (res.error) throw res.error;
-    if (res.status !== 0 && res.status !== null) {
-        const errText = res.stderr ? res.stderr.toString() : '';
-        throw new Error(`Claude exited with code ${res.status}: ${errText}`);
-    }
-    return res.stdout ? res.stdout.toString() : '';
+    return new Promise((resolve, reject) => {
+        let promptFilePath = null;
+        let effectivePrompt = prompt;
+
+        // Kỹ thuật từ ai-worker: Nếu prompt dài > 4000 ký tự, dispatch qua file trung gian
+        // để tránh tràn độ dài dòng lệnh Windows CLI (giới hạn 32,767 ký tự)
+        if (prompt.length > 4000) {
+            try {
+                const tmpDir = path.join(WORKER_ROOT, '.claude');
+                fs.mkdirSync(tmpDir, { recursive: true });
+                promptFilePath = path.join(tmpDir, `tmp_prompt_${Date.now()}.md`);
+                fs.writeFileSync(promptFilePath, prompt, 'utf8');
+                effectivePrompt = `Đọc kỹ và thực thi toàn bộ yêu cầu trong file sau: "${promptFilePath}". Tuân thủ chính xác từng bước.`;
+            } catch (e) {
+                console.warn(`[!] Không tạo được dispatch prompt file, fallback prompt inline: ${e.message}`);
+                effectivePrompt = prompt;
+            }
+        }
+
+        const args = ['-p', effectivePrompt, '--model', CLAUDE_MODEL, '--dangerously-skip-permissions'];
+        // Guardrail hook: nạp qua --settings (đường dẫn tuyệt đối, file của worker).
+        if (!fs.existsSync(WORKER_SETTINGS_FILE)) ensureWorkerSettings();
+        if (fs.existsSync(WORKER_SETTINGS_FILE)) {
+            args.push('--settings', WORKER_SETTINGS_FILE);
+        }
+        // Rules khoanh vùng bug: nạp như system prompt bổ sung.
+        if (fs.existsSync(WORKER_RULES_FILE)) {
+            args.push('--append-system-prompt', fs.readFileSync(WORKER_RULES_FILE, 'utf8'));
+        }
+
+        const options = {
+            cwd,
+            shell: false,
+            windowsHide: true,
+            stdio: ['pipe', 'pipe', 'pipe']
+        };
+
+        const child = spawn('claude', args, options);
+
+        // Đóng stdin ngay lập tức (EOF) để Claude Code non-interactive không bao giờ treo đợi TTY
+        try { child.stdin.end(); } catch (e) {}
+
+        let accumulatedStdout = '';
+        let accumulatedStderr = '';
+        let isTimedOut = false;
+
+        // Watchdog timer với Safe Tree-Kill trên Windows
+        const timer = setTimeout(() => {
+            isTimedOut = true;
+            console.error(`\n[!] Claude execution timed out after ${timeout}ms. Đang giải phóng cây tiến trình (tree-kill)...`);
+            if (process.platform === 'win32') {
+                try {
+                    execSync(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+                } catch (e) {}
+            } else {
+                try {
+                    process.kill(-child.pid, 'SIGKILL');
+                } catch (e) {
+                    try { child.kill('SIGKILL'); } catch (e2) {}
+                }
+            }
+        }, timeout);
+
+        // Real-time streaming stdout -> Dashboard & Console nhận log tức thì
+        child.stdout.on('data', (chunk) => {
+            const str = chunk.toString();
+            accumulatedStdout += str;
+            process.stdout.write(chunk);
+        });
+
+        // Real-time streaming stderr
+        child.stderr.on('data', (chunk) => {
+            const str = chunk.toString();
+            accumulatedStderr += str;
+            process.stderr.write(chunk);
+        });
+
+        child.on('error', (err) => {
+            clearTimeout(timer);
+            if (promptFilePath && fs.existsSync(promptFilePath)) {
+                try { fs.unlinkSync(promptFilePath); } catch (e) {}
+            }
+            reject(err);
+        });
+
+        child.on('close', (code, signal) => {
+            clearTimeout(timer);
+            if (promptFilePath && fs.existsSync(promptFilePath)) {
+                try { fs.unlinkSync(promptFilePath); } catch (e) {}
+            }
+
+            if (isTimedOut) {
+                return reject(new Error(`spawn claude ETIMEDOUT (${timeout}ms)`));
+            }
+
+            if (code !== 0 && code !== null) {
+                const errText = (accumulatedStderr || accumulatedStdout || '').slice(-1000);
+                return reject(new Error(`Claude exited with code ${code}: ${errText}`));
+            }
+
+            resolve(accumulatedStdout);
+        });
+    });
 }
 
 // --- SINGLETON MASTER WORKER CONFIG ---
@@ -544,7 +622,7 @@ async function resolveConflictWithClaude(branchName, targetServiceDirOrServicesD
 
         const conflictPrompt = `Git merge conflict occurred between ${branchName} and origin/${targetBranch}. Read CLAUDE.md. Find all files with conflict markers (<<<<<<<, =======, >>>>>>>), resolve conflicts keeping bug fixes and latest features, run build/test, and commit with message 'fix(conflict): resolve merge conflict with ${targetBranch}'.`;
 
-        runClaude(conflictPrompt, cwd, CLAUDE_TIMEOUT, false);
+        await runClaude(conflictPrompt, cwd, CLAUDE_TIMEOUT, false);
 
         // Bắt buộc kiểm tra commit do AI thực hiện
         await ensureAICommittedItself(branchName, "resolve conflict", cwd, devBranch, 'fix(conflict)');
@@ -1255,7 +1333,7 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         // 6. Bước 1: Repro Bug trong worktree
         console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${CLAUDE_TIMEOUT}ms)...`);
         const reproPrompt = getReproPrompt().replace(/\{JIRA_KEY\}/g, issueKey);
-        const reproOutput = runClaude(`Bug: ${summary}. ${reproPrompt}`, worktreeDir, CLAUDE_TIMEOUT, true);
+        const reproOutput = await runClaude(`Bug: ${summary}. ${reproPrompt}`, worktreeDir, CLAUDE_TIMEOUT, true);
         console.log(reproOutput);
         if (reproOutput.includes('[AI_STOP]')) {
             const reason = reproOutput.match(/\[AI_STOP\]\s*(.*)/)?.[1] || "AI chủ động dừng tại bước Repro.";
@@ -1281,7 +1359,7 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
 
         // 7. Bước 2: Fix Bug trong worktree
         console.log(`[+] Bước 2: Fix Bug trong worktree...`);
-        runClaude(fixPrompt, worktreeDir, CLAUDE_TIMEOUT, false);
+        await runClaude(fixPrompt, worktreeDir, CLAUDE_TIMEOUT, false);
 
         // 8. Đảm bảo AI đã tự commit
         // baseBranch (staging) chứ không phải devBranch: branch được tạo từ origin/<target>,
