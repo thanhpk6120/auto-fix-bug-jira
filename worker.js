@@ -1,4 +1,7 @@
-const { execSync, spawnSync, spawn } = require('child_process');
+const cp = require('child_process');
+const origExecSync = cp.execSync;
+const execSync = (cmd, options = {}) => origExecSync(cmd, { windowsHide: true, ...options });
+const { spawnSync, spawn } = cp;
 const fs = require('fs');
 const path = require('path');
 // Tự động nạp file .env từ thư mục gốc của worker (chạy an toàn cả khi không dùng cờ --env-file)
@@ -91,6 +94,25 @@ function ensureWorkerSettings() {
     }
 }
 
+function normalizeTimeoutMs(val, defaultMs = 3600000) {
+    if (!val) return defaultMs;
+    const str = String(val).trim().toLowerCase();
+    if (str.endsWith('h') || str.endsWith('hr') || str.endsWith('hour') || str.endsWith('hours')) {
+        return Math.round(parseFloat(str) * 3600 * 1000);
+    }
+    if (str.endsWith('m') || str.endsWith('min') || str.endsWith('mins') || str.endsWith('minute') || str.endsWith('minutes')) {
+        return Math.round(parseFloat(str) * 60 * 1000);
+    }
+    if (str.endsWith('s') || str.endsWith('sec') || str.endsWith('secs') || str.endsWith('second') || str.endsWith('seconds')) {
+        return Math.round(parseFloat(str) * 1000);
+    }
+    const num = parseFloat(str);
+    if (isNaN(num) || num <= 0) return defaultMs;
+    if (num <= 120) return Math.round(num * 60 * 1000); // 1 - 120 coi là phút (vd 60 -> 60 phút = 1 tiếng)
+    if (num < 10000) return Math.round(num * 1000);     // 120 - 10000 coi là giây (vd 3600 -> 1 tiếng)
+    return Math.round(num);                             // >= 10000 coi là ms
+}
+
 function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false) {
     return new Promise((resolve, reject) => {
         let promptFilePath = null;
@@ -111,7 +133,20 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
             }
         }
 
-        const args = ['-p', effectivePrompt, '--model', CLAUDE_MODEL, '--dangerously-skip-permissions'];
+        // CÁC CỜ BẢO VỆ TỐI THƯỢNG (HỌC HỎI TỪ ai-worker):
+        // 1. `--strict-mcp-config`: KHÔNG nạp MCP server toàn cục -> TRIỆT TIÊU 100% POPUP CỬA SỔ CMD/TERMINAL TRÊN WINDOWS
+        // 2. `--no-session-persistence`: KHÔNG lưu session vào ~/.claude/projects/ -> KHÔNG CHIẾM / ĐÈ SESSION CỦA DEV TRONG CÙNG FOLDER
+        // 3. `--output-format stream-json --verbose`: STREAM TOÀN BỘ SUY LUẬN VÀ TOOL CALL THEO THỜI GIAN THỰC RA CONSOLE/LOG
+        const args = [
+            '-p', effectivePrompt,
+            '--verbose',
+            '--output-format', 'stream-json',
+            '--strict-mcp-config',
+            '--no-session-persistence',
+            '--model', CLAUDE_MODEL,
+            '--dangerously-skip-permissions'
+        ];
+
         // Guardrail hook: nạp qua --settings (đường dẫn tuyệt đối, file của worker).
         if (!fs.existsSync(WORKER_SETTINGS_FILE)) ensureWorkerSettings();
         if (fs.existsSync(WORKER_SETTINGS_FILE)) {
@@ -134,7 +169,9 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
         // Đóng stdin ngay lập tức (EOF) để Claude Code non-interactive không bao giờ treo đợi TTY
         try { child.stdin.end(); } catch (e) {}
 
-        let accumulatedStdout = '';
+        let lineBuffer = '';
+        let accumulatedAssistantText = '';
+        let accumulatedFinalResult = '';
         let accumulatedStderr = '';
         let isTimedOut = false;
 
@@ -155,16 +192,59 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
             }
         }, timeout);
 
-        // Real-time streaming stdout -> Dashboard & Console nhận log tức thì
+        // Real-time streaming parser cho stream-json (chuẩn ai-worker):
+        // Bóc tách [AGENT THOUGHT], [TOOL CALL], [TOOL RESULT] và câu trả lời theo thời gian thực
         child.stdout.on('data', (chunk) => {
-            const str = chunk.toString();
-            accumulatedStdout += str;
-            process.stdout.write(chunk);
+            lineBuffer += chunk.toString('utf8');
+            const lines = lineBuffer.split(/\r?\n/);
+            lineBuffer = lines.pop(); // Giữ lại phần dư chưa hết dòng
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                try {
+                    const obj = JSON.parse(trimmed);
+                    const t = obj.type;
+
+                    if (t === 'assistant') {
+                        const msg = obj.message || {};
+                        for (const c of msg.content || []) {
+                            if (c.type === 'text' && c.text) {
+                                accumulatedAssistantText += c.text;
+                                process.stdout.write(c.text);
+                            } else if (c.type === 'tool_use') {
+                                const toolName = c.name || 'tool';
+                                const inputPreview = JSON.stringify(c.input || {}).slice(0, 160);
+                                process.stdout.write(`\x1b[35m[TOOL CALL]\x1b[0m ${toolName} ${inputPreview}\n`);
+                            } else if (c.type === 'thinking' && c.thinking) {
+                                const thoughtFirstLine = c.thinking.trim().split('\n')[0].slice(0, 140);
+                                process.stdout.write(`\x1b[36m[AGENT THOUGHT]\x1b[0m ${thoughtFirstLine}...\n`);
+                            }
+                        }
+                    } else if (t === 'user') {
+                        const msg = obj.message || {};
+                        for (const c of msg.content || []) {
+                            if (c.type === 'tool_result') {
+                                const resStr = (typeof c.content === 'string' ? c.content : JSON.stringify(c.content || '')).trim();
+                                const firstLine = resStr.split('\n')[0].slice(0, 140);
+                                if (firstLine) {
+                                    process.stdout.write(`\x1b[90m[TOOL RESULT]\x1b[0m ${firstLine}...\n`);
+                                }
+                            }
+                        }
+                    } else if (t === 'result' && obj.result) {
+                        accumulatedFinalResult = obj.result;
+                    }
+                } catch (e) {
+                    // Non-JSON chunk (vd: banner khởi động hoặc thông báo)
+                    process.stdout.write(trimmed + '\n');
+                }
+            }
         });
 
         // Real-time streaming stderr
         child.stderr.on('data', (chunk) => {
-            const str = chunk.toString();
+            const str = chunk.toString('utf8');
             accumulatedStderr += str;
             process.stderr.write(chunk);
         });
@@ -183,19 +263,33 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
                 try { fs.unlinkSync(promptFilePath); } catch (e) {}
             }
 
+            if (lineBuffer && lineBuffer.trim()) {
+                try {
+                    const obj = JSON.parse(lineBuffer.trim());
+                    if (obj.result) accumulatedFinalResult = obj.result;
+                } catch (e) {}
+            }
+
             if (isTimedOut) {
                 return reject(new Error(`spawn claude ETIMEDOUT (${timeout}ms)`));
             }
 
             if (code !== 0 && code !== null) {
-                const errText = (accumulatedStderr || accumulatedStdout || '').slice(-1000);
+                const errText = (accumulatedStderr || accumulatedFinalResult || accumulatedAssistantText || '').slice(-1000);
                 return reject(new Error(`Claude exited with code ${code}: ${errText}`));
             }
 
-            resolve(accumulatedStdout);
+            const finalOutput = accumulatedFinalResult || accumulatedAssistantText || '';
+            resolve(finalOutput);
         });
     });
 }
+
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-3-7-sonnet';
+const CLAUDE_TIMEOUT = normalizeTimeoutMs(
+    process.env.CLAUDE_TIMEOUT || process.env.CLAUDE_TIMEOUT_MS || process.env.CLAUDE_TIMEOUT_MINUTES,
+    3600000 // Mặc định 1 tiếng = 3,600,000ms
+);
 
 // --- SINGLETON MASTER WORKER CONFIG ---
 const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '2', 10);
@@ -337,8 +431,6 @@ function ensureRemoteOrigin(cwd, gitRepo) {
 
 const GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || 'AI Bug Fixer';
 const GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || 'ai-bot@local.dev';
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-3-7-sonnet';
-const CLAUDE_TIMEOUT = parseInt(process.env.CLAUDE_TIMEOUT_MS || '300000', 10);
 // Thời gian chờ pipeline CI/CD kết thúc (poll).
 const CI_POLL_MAX = parseInt(process.env.CI_POLL_MAX || '20', 10);
 const CI_POLL_INTERVAL_MS = parseInt(process.env.CI_POLL_INTERVAL_MS || '15000', 10);
@@ -1341,8 +1433,9 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         evidenceHelper.ensureEvidenceDir(issueKey);
         evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, JSON.stringify(description) || summary);
 
-        // 6. Bước 1: Repro Bug trong worktree
-        console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${CLAUDE_TIMEOUT}ms)...`);
+        // 6. Bước 1: Repro Bug
+        const timeoutMinutes = Math.round(CLAUDE_TIMEOUT / 60000);
+        console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${timeoutMinutes} phút / ${CLAUDE_TIMEOUT}ms)...`);
         const reproPrompt = getReproPrompt().replace(/\{JIRA_KEY\}/g, issueKey);
         const reproOutput = await runClaude(`Bug: ${summary}. ${reproPrompt}`, worktreeDir, CLAUDE_TIMEOUT, true);
         console.log(reproOutput);
@@ -1368,8 +1461,8 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
 
         await evidenceHelper.sendEvidenceToTelegram(issueKey, 'before', `🚨 <b>LỖI MỚI PHÁT HIỆN & REPRO</b>\n<b>Ticket:</b> ${issueKey}\n<b>Summary:</b> ${summary}`);
 
-        // 7. Bước 2: Fix Bug trong worktree
-        console.log(`[+] Bước 2: Fix Bug trong worktree...`);
+        // 7. Bước 2: Fix Bug
+        console.log(`[+] Bước 2: Fix Bug (Model: ${CLAUDE_MODEL}, Timeout: ${timeoutMinutes} phút / ${CLAUDE_TIMEOUT}ms)...`);
         await runClaude(fixPrompt, worktreeDir, CLAUDE_TIMEOUT, false);
 
         // 8. Đảm bảo AI đã tự commit
