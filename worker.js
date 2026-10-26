@@ -276,7 +276,7 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
                         const msg = obj.message || {};
                         for (const c of msg.content || []) {
                             if (c.type === 'text' && c.text) {
-                                accumulatedAssistantText += c.text;
+                                accumulatedAssistantText += (accumulatedAssistantText ? '\n' : '') + c.text;
                                 process.stdout.write(c.text);
                             } else if (c.type === 'tool_use') {
                                 const toolName = c.name || 'tool';
@@ -345,7 +345,11 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
                 return reject(new Error(`Claude exited with code ${code}: ${errText}`));
             }
 
-            const finalOutput = accumulatedFinalResult || accumulatedAssistantText || '';
+            let finalOutput = accumulatedAssistantText.trim();
+            if (accumulatedFinalResult && !finalOutput.includes(accumulatedFinalResult.trim())) {
+                finalOutput = finalOutput ? `${finalOutput}\n${accumulatedFinalResult.trim()}` : accumulatedFinalResult.trim();
+            }
+            if (!finalOutput) finalOutput = accumulatedFinalResult || '';
             resolve(finalOutput);
         });
     });
