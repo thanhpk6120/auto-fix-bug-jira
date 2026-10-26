@@ -632,36 +632,70 @@ const githubHeaders = {
 };
 
 // --- TELEGRAM BOT HELPERS ---
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 async function sendTelegramMessage(text, replyMarkup = null) {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return null;
-    const body = { chat_id: TELEGRAM_CHAT_ID, text: text, parse_mode: 'HTML' };
+    const botToken = process.env.TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID || TELEGRAM_CHAT_ID;
+    if (!botToken || !chatId) return null;
+
+    let safeText = text;
+    if (safeText.length > 4000) {
+        safeText = safeText.slice(0, 3950) + '\n... (nội dung quá dài, đã rút gọn)';
+    }
+
+    const body = { chat_id: chatId, text: safeText, parse_mode: 'HTML' };
     if (replyMarkup) body.reply_markup = replyMarkup;
 
     try {
-        const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
         const data = await res.json();
-        return data.ok ? data.result.message_id : null;
+        if (data.ok) return data.result.message_id;
+
+        console.error(`[!] Lỗi gửi tin Telegram HTML: ${data.description}. Đang thử fallback plain text...`);
+        const plainBody = { chat_id: chatId, text: safeText.replace(/<[^>]+>/g, '') };
+        if (replyMarkup) plainBody.reply_markup = replyMarkup;
+        const plainRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(plainBody)
+        });
+        const plainData = await plainRes.json();
+        return plainData.ok ? plainData.result.message_id : null;
     } catch (e) {
         console.error("Lỗi gửi tin nhắn Telegram:", e.message);
+        return null;
     }
 }
 
 async function sendTelegramDocument(caption, filename, content) {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID || TELEGRAM_CHAT_ID;
+    if (!botToken || !chatId) return;
     try {
         const formData = new FormData();
-        formData.append('chat_id', TELEGRAM_CHAT_ID);
-        formData.append('caption', caption);
+        formData.append('chat_id', chatId);
+        if (caption) formData.append('caption', caption);
         formData.append('document', new Blob([content], { type: 'text/plain' }), filename);
 
-        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
             method: 'POST',
             body: formData
         });
+        const data = await res.json();
+        if (!data.ok) {
+            console.error(`[!] Lỗi gửi file log Telegram (${filename}): ${data.description}`);
+        }
     } catch (e) {
         console.error("Lỗi gửi file log Telegram:", e.message);
     }
@@ -954,17 +988,106 @@ async function checkJiraForBugs() {
     }
 }
 
+function buildDetailedJiraFailComment(ctx, err) {
+    const timeStr = getTimestamp();
+    const serviceStr = ctx.targetService ? `${ctx.targetService} (${ctx.gitRepo || 'N/A'})` : 'Chưa xác định';
+    const branchStr = ctx.branchName ? `${ctx.branchName} (Base: ${ctx.baseBranch || 'N/A'})` : 'Chưa tạo';
+
+    return `❌ *[Auto-Fix Bot] Quá trình tự động sửa lỗi THẤT BẠI* (${timeStr})\n\n` +
+        `*Thông tin bối cảnh:*\n` +
+        `- *Dự án:* ${ctx.projectName}\n` +
+        `- *Service:* ${serviceStr}\n` +
+        `- *Branch hotfix:* ${branchStr}\n` +
+        `- *Bước thất bại:* ${ctx.step}\n\n` +
+        `*Chi tiết lỗi:*\n` +
+        `{code}\n` +
+        `${err.message || 'Lỗi không xác định'}\n` +
+        `{code}\n\n` +
+        `💡 *Khuyến nghị cho On-call Engineer:*\n` +
+        `1. Kiểm tra log chi tiết trong worker console hoặc thư mục evidence/${ctx.issueKey}/before/.\n` +
+        `2. Kiểm tra branch hotfix ${ctx.branchName || 'N/A'} trên local/remote nếu cần tiếp tục xử lý.\n` +
+        `3. Ticket đã được gắn nhãn auto-fix-failed để tránh worker quét lặp lại.`;
+}
+
+async function sendTelegramFailureAlert(ctx, err) {
+    const serviceStr = ctx.targetService ? `${escapeHtml(ctx.targetService)}` : 'Chưa xác định';
+    const repoStr = ctx.gitRepo ? ` (<code>${escapeHtml(ctx.gitRepo)}</code>)` : '';
+    const branchStr = ctx.branchName ? `<code>${escapeHtml(ctx.branchName)}</code>` : 'Chưa tạo';
+    let cleanErr = err.message || 'Lỗi không xác định';
+    if (cleanErr.length > 2500) {
+        cleanErr = cleanErr.slice(0, 2500) + '\n... (chi tiết xem file log / Jira)';
+    }
+
+    const text = `❌ <b>AUTO-FIX THẤT BẠI — CẦN CAN THIỆP THỦ CÔNG</b>\n\n` +
+        `• <b>Ticket:</b> <code>${escapeHtml(ctx.issueKey)}</code>\n` +
+        `• <b>Dự án:</b> ${escapeHtml(ctx.projectName)}\n` +
+        `• <b>Service:</b> <code>${serviceStr}</code>${repoStr}\n` +
+        `• <b>Branch:</b> ${branchStr}\n` +
+        `• <b>Tóm tắt:</b> ${escapeHtml(ctx.summary)}\n` +
+        `• <b>Bước thất bại:</b> ⚠️ <b>${escapeHtml(ctx.step)}</b>\n` +
+        `• <b>Chi tiết lỗi:</b>\n` +
+        `<pre>${escapeHtml(cleanErr)}</pre>\n\n` +
+        `👉 <i>Ticket đã được gắn nhãn <code>auto-fix-failed</code> để tránh quét lại. Vui lòng kiểm tra log và xử lý thủ công.</i>`;
+
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: `🎫 Xem Jira Ticket`, url: `https://${JIRA_DOMAIN}/browse/${ctx.issueKey}` }
+            ]
+        ]
+    };
+    if (ctx.gitRepo && ctx.branchName) {
+        try {
+            keyboard.inline_keyboard[0].push({
+                text: `🔗 Xem branch`,
+                url: buildWebUrl(ctx.gitRepo, ctx.branchName)
+            });
+        } catch (e) {}
+    }
+
+    await sendTelegramMessage(text, keyboard);
+}
+
 async function processBugWrapper(issue, projectConfig, serviceLockKey = null, workspaceKey = null) {
     let isSuccess = false;
+    const failedContext = {
+        issueKey: issue.key,
+        summary: issue.fields.summary,
+        projectName: projectConfig.name || projectConfig.projectKey,
+        targetService: null,
+        gitRepo: null,
+        branchName: null,
+        baseBranch: null,
+        step: 'Khởi động job xử lý bug'
+    };
+
     try {
         await processBug(issue.key, issue.fields.summary, issue.fields.description, issue.fields.attachment || [], projectConfig, issue.fields.labels || []);
         isSuccess = true;
     } catch (err) {
         console.error(`[-] Xử lý bug ${issue.key} thất bại:`, err.message);
+        if (err.contextInfo) {
+            Object.assign(failedContext, err.contextInfo);
+        }
+        if (err.step) {
+            failedContext.step = err.step;
+        }
         try {
             await markJiraIssueFailed(issue.key, err.message);
-            await addJiraComment(issue.key, `❌ Auto-fix thất bại: ${err.message}`);
-        } catch (e) {}
+        } catch (e) {
+            console.error(`[!] Lỗi markJiraIssueFailed: ${e.message}`);
+        }
+        try {
+            const detailedComment = buildDetailedJiraFailComment(failedContext, err);
+            await addJiraComment(issue.key, detailedComment);
+        } catch (e) {
+            console.error(`[!] Lỗi addJiraComment chi tiết: ${e.message}`);
+        }
+        try {
+            await sendTelegramFailureAlert(failedContext, err);
+        } catch (e) {
+            console.error(`[!] Lỗi gửi Telegram failure alert: ${e.message}`);
+        }
     } finally {
         activeJobs--;
         if (serviceLockKey) activeServiceLocks.delete(serviceLockKey);
@@ -1332,6 +1455,18 @@ async function checkCiPipeline(gitRepo, branchName) {
 }
 
 async function processBug(issueKey, summary, description, attachments, projectConfig, labels) {
+    let currentStep = 'Khởi tạo và phân giải cấu hình service';
+    const contextInfo = {
+        issueKey,
+        summary,
+        projectName: projectConfig.name || projectConfig.projectKey,
+        targetService: null,
+        gitRepo: null,
+        branchName: null,
+        baseBranch: null,
+        step: currentStep
+    };
+
     const serviceLabel = (labels || []).find(l => l.startsWith('service:'));
     if (!serviceLabel) {
         throw new Error(`[Fail-Safe Abort] Ticket ${issueKey} không có nhãn 'service:*'. Không xác định được service mục tiêu để xử lý an toàn.`);
@@ -1339,6 +1474,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
 
     const projectDir = resolveProjectDir(projectConfig);
     const targetService = serviceLabel.split(':')[1];
+    contextInfo.targetService = targetService;
 
     // Đọc services.json tại project
     const servicesJsonPath = path.join(projectDir, 'services.json');
@@ -1375,22 +1511,25 @@ async function processBug(issueKey, summary, description, attachments, projectCo
     const sourceStaging = serviceConfig.branches.source_staging;
     const gitRepo = serviceConfig.gitRepo;
     const pushUrl = buildRemoteUrl(gitRepo);
+    contextInfo.gitRepo = gitRepo;
+    contextInfo.baseBranch = targetBranch;
 
     // Tên branch có timestamp để mỗi lần retry tạo branch MỚI, không ghi đè lịch sử cũ trên remote.
     // Định dạng: hotfix/<KEY>-<YYYYMMDD-HHMMSS>
     const runStamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
     const branchName = `hotfix/${issueKey}-${runStamp}`;
+    contextInfo.branchName = branchName;
     // Base của branch = nhánh target — sửa code TRÊN nhánh target.
     const baseBranch = targetBranch;
     const worktreeDir = targetServiceDir;
-
     console.log(`\n========================================`);
     console.log(`[+] Phát hiện Bug mới: ${issueKey} - ${summary}`);
     console.log(`[+] Target Repo: ${gitRepo} | Service: ${targetService} | Dev Branch: ${devBranch}`);
     // Nhánh user đang làm việc — phải restore lại sau khi xử lý xong (khai báo ngoài try để finally luôn thấy).
     let originalBranch = '';
     try {
-        // 1. Dọn worktree cũ còn sót lại từ lần chạy trước (không dùng worktree nữa).
+        currentStep = 'Kiểm tra trạng thái Git & chuẩn bị repo service';
+        contextInfo.step = currentStep;
         try {
             execSync(`git worktree remove --force .worktrees/${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
         } catch(e) {}
@@ -1429,7 +1568,8 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         // Trước khi phân tích và fix bug thì phải pull code mới ở cả target và source_target
         // rồi merge từ source_target vào target trước để cập nhật code mới nhất.
         if (sourceTarget && targetBranch) {
-            console.log(`[+] Đồng bộ source_target: fetch ${targetBranch} & ${sourceTarget}, merge ${sourceTarget} -> ${targetBranch}...`);
+            currentStep = 'Đồng bộ nhánh source_target vào target trước khi fix';
+            contextInfo.step = currentStep;
             execSync(`git fetch origin ${targetBranch}`, { cwd: targetServiceDir, stdio: 'pipe' });
             execSync(`git fetch origin ${sourceTarget}`, { cwd: targetServiceDir, stdio: 'pipe' });
             execSync(`git checkout ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
@@ -1446,6 +1586,8 @@ async function processBug(issueKey, summary, description, attachments, projectCo
 
         // 4b. Tạo branch hotfix TRỰC TIẾP trong repo service, base = origin/<target>.
         // KHÔNG xoá branch cũ: tên branch có timestamp nên mỗi lần chạy là một branch riêng.
+        currentStep = `Tạo branch hotfix ${branchName} từ origin/${baseBranch}`;
+        contextInfo.step = currentStep;
         console.log(`[+] Tạo branch ${branchName} từ origin/${baseBranch}...`);
         try {
             execSync(`git branch -D ${branchName}`, { cwd: targetServiceDir, stdio: 'pipe' });
@@ -1495,11 +1637,39 @@ STEPS (follow strictly, in order):
 Do not fail. Do not ask questions. Make sure the tests you wrote are complete and correct, then commit and stop.`;
 
         // Dọn dẹp evidence cũ của ticket này (nếu có)
+        currentStep = 'Khởi tạo evidence ban đầu & gửi Alert 1 Telegram';
+        contextInfo.step = currentStep;
         fs.rmSync(path.join(WORKER_ROOT, 'evidence', issueKey), { recursive: true, force: true });
         evidenceHelper.ensureEvidenceDir(issueKey);
-        evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, JSON.stringify(description) || summary);
+        const errorContent = typeof description === 'string' ? description : (JSON.stringify(description) || summary);
+        evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, errorContent);
+
+        // ALERT 1: Gửi thông báo phát hiện lỗi & đang xử lý kèm file log lỗi ban đầu về Telegram
+        const alert1Msg = `🚨 <b>PHÁT HIỆN LỖI MỚI & BẮT ĐẦU XỬ LÝ (LEVEL 3)</b>\n\n` +
+            `• <b>Ticket:</b> <code>${escapeHtml(issueKey)}</code>\n` +
+            `• <b>Dự án:</b> ${escapeHtml(projectConfig.name || projectConfig.projectKey)}\n` +
+            `• <b>Service:</b> <code>${escapeHtml(targetService)}</code> (<code>${escapeHtml(gitRepo)}</code>)\n` +
+            `• <b>Branch:</b> <code>${escapeHtml(branchName)}</code> (base: <code>${escapeHtml(baseBranch)}</code>)\n` +
+            `• <b>Tóm tắt:</b> ${escapeHtml(summary)}\n\n` +
+            `⏳ <i>Đang tiến hành tái hiện lỗi (Repro Bug) và phân tích mã nguồn...</i>`;
+
+        const alert1Keyboard = {
+            inline_keyboard: [
+                [
+                    { text: `🎫 Xem Jira Ticket`, url: `https://${JIRA_DOMAIN}/browse/${issueKey}` }
+                ]
+            ]
+        };
+
+        try {
+            await evidenceHelper.sendEvidenceToTelegram(issueKey, 'before', alert1Msg, alert1Keyboard);
+        } catch (e) {
+            console.error(`[!] Lỗi gửi Alert 1 Telegram: ${e.message}`);
+        }
 
         // 6. Bước 1: Repro Bug
+        currentStep = 'Bước 1: Tái hiện lỗi (Repro Bug)';
+        contextInfo.step = currentStep;
         const timeoutMinutes = Math.round(CLAUDE_TIMEOUT / 60000);
         console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${timeoutMinutes} phút / ${CLAUDE_TIMEOUT}ms)...`);
         const reproPrompt = getReproPrompt().replace(/\{JIRA_KEY\}/g, issueKey);
@@ -1511,30 +1681,44 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         }
 
         // Thu thập evidence do Claude tạo trong worktree (cwd của Claude = worktree).
-        // Không có bước này, bằng chứng của AI nằm lại trong worktree và bị xoá khi dọn.
         const collected = evidenceHelper.collectFromWorktree(worktreeDir, issueKey, 'before');
         if (collected.copied > 0) {
             console.log(`[+] Đã thu thập ${collected.copied} file evidence từ worktree: ${collected.files.join(', ')}`);
         }
 
-        // Kiểm tra bằng chứng repro có thật: phải có file do AI tạo, không phải file
-        // placeholder mà worker tự sinh ở trên (chỉ có tên chứa JIRA_KEY, nội dung rỗng).
+        // Kiểm tra bằng chứng repro có thật: phải có file do AI tạo
         const beforeFiles = evidenceHelper.listEvidenceFiles(issueKey, 'before');
         const aiEvidence = beforeFiles.filter(f => f !== `${issueKey}_error.txt`);
         if (aiEvidence.length === 0) {
             throw new Error(`Repro fail: AI không tạo bằng chứng trong 'evidence/${issueKey}/before/' của worktree (đã thu thập ${collected.copied} file).`);
         }
 
-        await evidenceHelper.sendEvidenceToTelegram(issueKey, 'before', `🚨 <b>LỖI MỚI PHÁT HIỆN & REPRO</b>\n<b>Ticket:</b> ${issueKey}\n<b>Summary:</b> ${summary}`);
+        // Thông báo tái hiện lỗi thành công
+        const reproSuccessMsg = `🔍 <b>ĐÃ TÁI HIỆN LỖI THÀNH CÔNG (REPRO PASSED)</b>\n\n` +
+            `• <b>Ticket:</b> <code>${escapeHtml(issueKey)}</code>\n` +
+            `• <b>Bằng chứng AI:</b> Đã thu thập ${aiEvidence.length} file vào <code>evidence/${issueKey}/before/</code>\n\n` +
+            `🛠️ <i>Đang kích hoạt Claude Code tiến hành sửa lỗi & viết Unit Test...</i>`;
+        try {
+            await evidenceHelper.sendEvidenceToTelegram(issueKey, 'before', reproSuccessMsg);
+        } catch (e) {
+            console.error(`[!] Lỗi gửi Repro update Telegram: ${e.message}`);
+        }
 
+        // 7. Bước 2: Fix Bug
+        currentStep = 'Bước 2: Sửa mã nguồn (Fix Bug)';
+        contextInfo.step = currentStep;
         // 7. Bước 2: Fix Bug
         console.log(`[+] Bước 2: Fix Bug (Model: ${CLAUDE_MODEL}, Timeout: ${timeoutMinutes} phút / ${CLAUDE_TIMEOUT}ms)...`);
         await runClaude(fixPrompt, worktreeDir, CLAUDE_TIMEOUT, false);
 
         // 8. Đảm bảo AI đã tự commit
-        // baseBranch (staging) chứ không phải devBranch: branch được tạo từ origin/<target>,
-        // nếu so với master thì rev-list luôn >0 → gate 'AI có tạo commit' bị vô hiệu.
+        currentStep = 'Bước 3: Xác minh AI commit mã nguồn';
+        contextInfo.step = currentStep;
         await ensureAICommittedItself(branchName, `ticket ${issueKey}`, worktreeDir, baseBranch, commitPrefix);
+
+        // 8b. Thu thập evidence "after" (kết quả test sau khi fix) từ worktree.
+        currentStep = 'Bước 4: Thu thập bằng chứng sau sửa (Evidence After)';
+        contextInfo.step = currentStep;
 
         // 8b. Thu thập evidence "after" (kết quả test sau khi fix) từ worktree.
         // Trước đây phase after không bao giờ được điền — chỉ có 'before'.
@@ -1544,7 +1728,8 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         }
 
         // 9. Worker TỰ chạy unit test + coverage + build.
-        // Chỉ khi TẤT CẢ pass mới được merge. Không tin báo cáo tự khai của AI.
+        currentStep = 'Bước 5: Xác minh Unit Test & Coverage (≥90%) & Build';
+        contextInfo.step = currentStep;
         // Lọc bỏ artifact build (target/, dist/, node_modules/) — một số repo vô tình track
         // chúng, nếu không lọc thì danh sách file rác làm loãng kiểm tra coverage.
         const changedFiles = execSync(`git diff --name-only origin/${baseBranch}..HEAD`, { cwd: targetServiceDir, encoding: 'utf8' })
@@ -1563,6 +1748,8 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         execSync(`git push -u ${pushUrl} ${branchName}`, { cwd: targetServiceDir, stdio: 'inherit' });
 
         // 10b. Merge branch hotfix vào nhánh target rồi push.
+        currentStep = `Bước 6: Merge ${branchName} vào target (${targetBranch})`;
+        contextInfo.step = currentStep;
         console.log(`[+] Merge ${branchName} vào target (${targetBranch})...`);
         execSync(`git checkout ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
         execSync(`git pull --ff-only origin ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
@@ -1622,62 +1809,75 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         }
 
         // 11. Kiểm tra pipeline CI/CD để xác nhận deploy staging.
-        // Repo chưa có CI → bước này BỎ QUA (status 'skipped'), không chặn.
+        currentStep = 'Bước 7: Kiểm tra Pipeline CI/CD';
+        contextInfo.step = currentStep;
         const ci = await checkCiPipeline(gitRepo, deployedBranch);
         if (ci.status === 'failed') {
             console.warn('[!] Pipeline thất bại — vẫn báo Telegram để người duyệt xử lý.');
         }
 
         // 12. Báo cáo Telegram. KHÔNG tạo PR lên prod (tạm thời bỏ qua).
+        const ciDetailSafe = escapeHtml(ci.detail);
         const ciLine = ci.status === 'skipped'
-            ? `⏭️ <b>Pipeline:</b> ${ci.detail}`
+            ? `⏭️ <b>Pipeline:</b> Bỏ qua (repo chưa có file CI/CD)`
             : ci.status === 'ok'
-                ? `✅ <b>Pipeline:</b> ${ci.detail}`
+                ? `✅ <b>Pipeline:</b> PASS (${ciDetailSafe})`
                 : ci.status === 'running'
-                    ? `⏳ <b>Pipeline:</b> ${ci.detail}`
+                    ? `⏳ <b>Pipeline:</b> Đang chạy (${ciDetailSafe})`
                     : ci.status === 'timeout'
-                        ? `⏱️ <b>Pipeline:</b> ${ci.detail}`
-                        : `❌ <b>Pipeline:</b> ${ci.detail}`;
+                        ? `⏱️ <b>Pipeline:</b> ${ciDetailSafe}`
+                        : `❌ <b>Pipeline:</b> ${ciDetailSafe}`;
 
-        // Tiêu đề phải phản ánh đúng thực tế — không báo 'THÀNH CÔNG' khi pipeline lỗi.
         const title = ci.status === 'ok'
-            ? `🚀 <b>ĐÃ FIX & DEPLOY LÊN ${deployedBranch} THÀNH CÔNG!</b>`
+            ? `🚀 <b>ĐÃ FIX & DEPLOY LÊN ${escapeHtml(deployedBranch)} THÀNH CÔNG!</b>`
             : ci.status === 'skipped'
-                ? `✅ <b>ĐÃ FIX & MERGE LÊN ${deployedBranch} (không có CI/CD để xác nhận deploy)</b>`
+                ? `✅ <b>ĐÃ FIX & MERGE LÊN ${escapeHtml(deployedBranch)} (không có CI/CD để xác nhận deploy)</b>`
                 : ci.status === 'running' || ci.status === 'timeout'
-                    ? `🟡 <b>ĐÃ FIX & MERGE LÊN ${deployedBranch} — CI chưa xác nhận deploy xong</b>`
-                    : `⚠️ <b>ĐÃ FIX & MERGE LÊN ${deployedBranch} — NHƯNG PIPELINE THẤT BẠI</b>`;
+                    ? `🟡 <b>ĐÃ FIX & MERGE LÊN ${escapeHtml(deployedBranch)} — CI chưa xác nhận deploy xong</b>`
+                    : `⚠️ <b>ĐÃ FIX & MERGE LÊN ${escapeHtml(deployedBranch)} — NHƯNG PIPELINE THẤT BẠI</b>`;
 
-        await sendTelegramMessage(
-            `${title}\n\n` +
-            `• <b>Ticket:</b> <code>${issueKey}</code>\n` +
-            `• <b>Service:</b> <code>${targetService}</code> (${gitRepo})\n` +
-            `• <b>Summary:</b> ${summary}\n` +
-            `• <b>Branch đã sửa:</b> <code>${branchName}</code> (base: <code>${baseBranch}</code>)\n` +
+        const successMsg = `${title}\n\n` +
+            `• <b>Ticket:</b> <code>${escapeHtml(issueKey)}</code>\n` +
+            `• <b>Dự án:</b> ${escapeHtml(projectConfig.name || projectConfig.projectKey)}\n` +
+            `• <b>Service:</b> <code>${escapeHtml(targetService)}</code> (${escapeHtml(gitRepo)})\n` +
+            `• <b>Summary:</b> ${escapeHtml(summary)}\n` +
+            `• <b>Branch đã sửa:</b> <code>${escapeHtml(branchName)}</code> (base: <code>${escapeHtml(baseBranch)}</code>)\n` +
             `• <b>Xác minh:</b> unit test + coverage + build đều PASS\n` +
-            `• <b>Đã merge:</b> <code>${deployedBranch}</code>\n` +
+            `• <b>Đã merge:</b> <code>${escapeHtml(deployedBranch)}</code>\n` +
             `${ciLine}\n\n` +
-            `<i>Chưa tạo PR lên production (tạm thời bỏ qua theo yêu cầu).</i>`,
-            {
-                inline_keyboard: [
-                    [
-                        { text: `🔗 Xem branch ${branchName}`, url: buildWebUrl(gitRepo, branchName) }
-                    ]
+            `<i>Chưa tạo PR lên production (tạm thời bỏ qua theo yêu cầu).</i>`;
+
+        const successKeyboard = {
+            inline_keyboard: [
+                [
+                    { text: `🔗 Xem branch ${branchName}`, url: buildWebUrl(gitRepo, branchName) },
+                    { text: `🎫 Xem Jira Ticket`, url: `https://${JIRA_DOMAIN}/browse/${issueKey}` }
                 ]
-            }
-        );
+            ]
+        };
+
+        // ALERT 2: Gửi thông báo hoàn thành kèm toàn bộ bằng chứng sau sửa đổi (hình ảnh, test log từ after/)
+        try {
+            await evidenceHelper.sendEvidenceToTelegram(issueKey, 'after', successMsg, successKeyboard);
+        } catch (e) {
+            console.error(`[!] Lỗi gửi Alert 2 Telegram: ${e.message}`);
+            await sendTelegramMessage(successMsg, successKeyboard);
+        }
 
         // 13. Cập nhật Jira
         await addJiraComment(
             issueKey,
-            `✅ [Auto-Fix Bot] Đã sửa lỗi và deploy lên ${deployedBranch} thành công!\n\n` +
-            `- Repository: ${gitRepo}\n` +
-            `- Branch: ${branchName} -> đã merge vào ${baseBranch}\n` +
-            `- Xác minh: unit test + coverage + build đều PASS\n` +
-            `- Pipeline: ${ci.status} — ${ci.detail}\n` +
+            `✅ *[Auto-Fix Bot] Đã sửa lỗi và deploy lên ${deployedBranch} thành công!*\n\n` +
+            `- *Repository:* ${gitRepo}\n` +
+            `- *Branch:* ${branchName} -> đã merge vào ${baseBranch}\n` +
+            `- *Xác minh:* unit test + coverage + build đều PASS\n` +
+            `- *Pipeline:* ${ci.status} — ${ci.detail}\n` +
             `- Chưa tạo PR lên production (tạm thời bỏ qua).`
         );
-
+    } catch (err) {
+        err.step = currentStep;
+        err.contextInfo = contextInfo;
+        throw err;
     } finally {
         // Dọn evidence/ do AI tạo trong repo service (đã copy sang WORKER_ROOT).
         // Nếu để lại → untracked → dirty-guard chặn mọi job sau.
