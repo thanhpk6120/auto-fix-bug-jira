@@ -428,3 +428,18 @@ server.listen(PORT, () => {
     console.log(`👉 Truy cập qua mạng LAN: http://10.30.1.207:${PORT}`);
     console.log(`================================================================`);
 });
+
+// GlitchTip LAN Proxy (10.30.1.207:8000 -> 127.0.0.1:8000 WSL GlitchTip)
+const net = require('net');
+const glitchTipProxy = net.createServer((client) => {
+    const upstream = net.connect(8000, '127.0.0.1');
+    client.pipe(upstream);
+    upstream.pipe(client);
+    upstream.on('error', () => client.destroy());
+    client.on('error', () => upstream.destroy());
+});
+glitchTipProxy.listen(8000, '10.30.1.207', () => {
+    console.log(`[PROXY] GlitchTip LAN proxy ready at: http://10.30.1.207:8000`);
+}).on('error', (err) => {
+    console.log('[PROXY] GlitchTip LAN proxy notice:', err.message);
+});
