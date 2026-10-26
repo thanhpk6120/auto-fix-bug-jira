@@ -200,6 +200,7 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
 // --- SINGLETON MASTER WORKER CONFIG ---
 const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '2', 10);
 let activeJobs = 0;
+const activeWorkspaceLocks = new Set(); // Khoá theo workspace (projectDir): đảm bảo trong 1 workspace chỉ thực thi lần lượt từng bug 1
 const activeServiceLocks = new Set(); // Khoá theo "projectKey:targetService" tránh 2 job mutate cùng repo
 let isScanning = false;
 // Thư mục gốc của worker: nơi chứa projects.json, .env, evidence/, pending-prs.json.
@@ -722,6 +723,14 @@ async function checkJiraForBugs() {
 
         try {
             const { projectKey } = project;
+            const projectDir = resolveProjectDir(project);
+            const workspaceKey = path.resolve(projectDir);
+
+            // Tuần tự theo Workspace: trong 1 workspace chỉ chạy lần lượt từng bug 1
+            if (activeWorkspaceLocks.has(workspaceKey)) {
+                continue;
+            }
+
             const jql = `project = ${projectKey} AND issuetype = Bug AND status IN ("To Do", "Selected for Development", "Backlog", "Open", "RE OPENED") AND (labels = "auto-fix" OR summary ~ "AUTO-BUG") AND (labels NOT IN ("auto-fix-processing", "auto-fix-done", "auto-fix-failed") OR labels IS EMPTY)`;
             const searchUrl = `https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/${JIRA_SEARCH_PATH}?jql=${encodeURIComponent(jql)}&fields=summary,description,attachment,labels&maxResults=1`;
             console.log(`[${getTimestamp()}] Đang quét Jira cho dự án ${projectKey}...`);
@@ -775,10 +784,11 @@ async function checkJiraForBugs() {
                 }
 
                 if (serviceLockKey) activeServiceLocks.add(serviceLockKey);
+                activeWorkspaceLocks.add(workspaceKey);
                 activeJobs++;
-                console.log(`[${getTimestamp()}] [+] Giao việc thành công: ${issue.key}. Active jobs: ${activeJobs}`);
+                console.log(`[${getTimestamp()}] [+] Giao việc thành công: ${issue.key} trong workspace '${projectKey}'. Active jobs: ${activeJobs}`);
 
-                processBugWrapper(issue, project, serviceLockKey).catch(e => {
+                processBugWrapper(issue, project, serviceLockKey, workspaceKey).catch(e => {
                     console.error(`Worker crash nền tại ticket ${issue.key}:`, e);
                 });
             }
@@ -786,7 +796,7 @@ async function checkJiraForBugs() {
     }
 }
 
-async function processBugWrapper(issue, projectConfig, serviceLockKey = null) {
+async function processBugWrapper(issue, projectConfig, serviceLockKey = null, workspaceKey = null) {
     let isSuccess = false;
     try {
         await processBug(issue.key, issue.fields.summary, issue.fields.description, issue.fields.attachment || [], projectConfig, issue.fields.labels || []);
@@ -800,6 +810,7 @@ async function processBugWrapper(issue, projectConfig, serviceLockKey = null) {
     } finally {
         activeJobs--;
         if (serviceLockKey) activeServiceLocks.delete(serviceLockKey);
+        if (workspaceKey) activeWorkspaceLocks.delete(workspaceKey);
         console.log(`[-] Hoàn thành job ${issue.key}. Active jobs: ${activeJobs}`);
         // Gỡ nhãn auto-fix-processing + gắn nhãn kết quả.
         // Nếu PUT lỗi, nhãn processing VẪN còn → ticket kẹt vĩnh viễn, JQL loại trừ nó
