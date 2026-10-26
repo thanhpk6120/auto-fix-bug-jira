@@ -4,6 +4,7 @@ const execSync = (cmd, options = {}) => origExecSync(cmd, { windowsHide: true, .
 const { spawnSync, spawn } = cp;
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 // Tự động nạp file .env từ thư mục gốc của worker (chạy an toàn cả khi không dùng cờ --env-file)
 const envPath = path.join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
@@ -73,7 +74,59 @@ function getTimestamp() {
 const WORKER_RULES_FILE = path.join(__dirname, 'CLAUDE.md');
 const WORKER_HOOK_FILE = path.join(__dirname, '.claude', 'hooks', 'pre-tool-use.js');
 const WORKER_SETTINGS_FILE = path.join(__dirname, '.claude', 'settings.generated.json');
+const WORKER_MCP_FILE = path.join(__dirname, '.claude', 'mcp.generated.json');
 
+// Sinh cấu hình MCP sạch (chuẩn ai-worker): gọi thẳng binary node / .exe,
+// không gọi qua file .cmd / batch wrapper để triệt tiêu 100% cửa sổ popup cmd/conhost.
+function ensureWorkerMcpConfig() {
+    try {
+        const homeMcpPath = path.join(os.homedir(), '.claude.json');
+        let atlassianEnv = {};
+        if (fs.existsSync(homeMcpPath)) {
+            try {
+                const raw = JSON.parse(fs.readFileSync(homeMcpPath, 'utf8'));
+                if (raw.mcpServers && raw.mcpServers['company-atlassian'] && raw.mcpServers['company-atlassian'].env) {
+                    atlassianEnv = raw.mcpServers['company-atlassian'].env;
+                }
+            } catch (err) {}
+        }
+        const mcpConfig = {
+            mcpServers: {
+                gitnexus: {
+                    command: 'node',
+                    args: ['C:/Users/Admin/AppData/Roaming/npm/node_modules/gitnexus/dist/cli/index.js', 'mcp']
+                },
+                'company-atlassian': {
+                    command: 'C:/Users/Admin/.local/bin/mcp-atlassian.exe',
+                    args: [],
+                    env: atlassianEnv
+                },
+                context7: {
+                    command: 'node',
+                    args: ['C:/Users/Admin/AppData/Roaming/npm/node_modules/@upstash/context7-mcp/dist/index.js']
+                },
+                glab: {
+                    command: 'C:/Users/Admin/AppData/Local/Programs/glab/glab.exe',
+                    args: ['mcp', 'serve']
+                },
+                memorix: {
+                    command: 'node',
+                    args: ['C:/Users/Admin/AppData/Roaming/npm/node_modules/memorix/dist/cli/index.js', 'serve', '--mode', 'lite']
+                },
+                cloakbrowser: {
+                    command: 'node',
+                    args: ['D:/mcp-servers/cloakbrowser/mcp-server-full.mjs']
+                }
+            }
+        };
+        fs.mkdirSync(path.dirname(WORKER_MCP_FILE), { recursive: true });
+        fs.writeFileSync(WORKER_MCP_FILE, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf8');
+        return WORKER_MCP_FILE;
+    } catch (e) {
+        console.warn(`[!] Không ghi được ${WORKER_MCP_FILE}: ${e.message}`);
+        return null;
+    }
+}
 // Sinh settings.json với đường dẫn hook TUYỆT ĐỐI (hook chạy ở cwd của Claude = repo service
 // của repo khách nên đường dẫn tương đối sẽ không tìm thấy). Ghi 1 lần lúc khởi động.
 function ensureWorkerSettings() {
@@ -134,18 +187,24 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
         }
 
         // CÁC CỜ BẢO VỆ TỐI THƯỢNG (HỌC HỎI TỪ ai-worker):
-        // 1. `--strict-mcp-config`: KHÔNG nạp MCP server toàn cục -> TRIỆT TIÊU 100% POPUP CỬA SỔ CMD/TERMINAL TRÊN WINDOWS
-        // 2. `--no-session-persistence`: KHÔNG lưu session vào ~/.claude/projects/ -> KHÔNG CHIẾM / ĐÈ SESSION CỦA DEV TRONG CÙNG FOLDER
-        // 3. `--output-format stream-json --verbose`: STREAM TOÀN BỘ SUY LUẬN VÀ TOOL CALL THEO THỜI GIAN THỰC RA CONSOLE/LOG
+        // 1. `--mcp-config`: Nạp đầy đủ 6 MCP Server sạch (chạy thẳng node/.exe, triệt tiêu popup terminal)
+        // 2. `--strict-mcp-config`: Chỉ nạp MCP từ file config sạch này, bỏ qua các batch script .cmd ngoài máy
+        // 3. `--no-session-persistence`: KHÔNG lưu session vào ~/.claude/projects/ -> KHÔNG CHIẾM / ĐÈ SESSION CỦA DEV TRONG CÙNG FOLDER
+        // 4. `--output-format stream-json --verbose`: STREAM TOÀN BỘ SUY LUẬN VÀ TOOL CALL THEO THỜI GIAN THỰC RA CONSOLE/LOG
+        if (!fs.existsSync(WORKER_MCP_FILE)) ensureWorkerMcpConfig();
+
         const args = [
             '-p', effectivePrompt,
             '--verbose',
             '--output-format', 'stream-json',
-            '--strict-mcp-config',
             '--no-session-persistence',
             '--model', CLAUDE_MODEL,
             '--dangerously-skip-permissions'
         ];
+
+        if (fs.existsSync(WORKER_MCP_FILE)) {
+            args.push('--mcp-config', WORKER_MCP_FILE, '--strict-mcp-config');
+        }
 
         // Guardrail hook: nạp qua --settings (đường dẫn tuyệt đối, file của worker).
         if (!fs.existsSync(WORKER_SETTINGS_FILE)) ensureWorkerSettings();
@@ -161,6 +220,13 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
             cwd,
             shell: false,
             windowsHide: true,
+            env: {
+                ...process.env,
+                MCP_TIMEOUT: '60000',
+                MCP_HANDSHAKE_TIMEOUT: '60000',
+                MCP_HANDSHAKE_TIMEOUT_MS: '60000',
+                ENABLE_TOOL_SEARCH: 'true'
+            },
             stdio: ['pipe', 'pipe', 'pipe']
         };
 
