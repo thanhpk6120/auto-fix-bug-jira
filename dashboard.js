@@ -244,7 +244,12 @@ function renderDashboardHtml() {
       <div class="card">
         <div class="console-header">
           <div style="font-weight: 600; font-size: 15px;">Console Log Thời Gian Thực</div>
-          <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 12.5px; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; user-select: none; margin-right: 4px;">
+              <input type="checkbox" id="chkAutoScroll" checked onchange="toggleAutoScroll(this.checked)">
+              <span>Tự động cuộn</span>
+            </label>
+            <button id="btnScrollBottom" class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; display: none;" onclick="scrollToBottom()" title="Cuộn xuống cuối log">⬇️ Xuống cuối</button>
             <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; display: inline-flex;" onclick="clearLogs()">🧹 Xóa Log</button>
           </div>
         </div>
@@ -258,6 +263,38 @@ function renderDashboardHtml() {
   <script>
     let isAutoScroll = true;
 
+    function initAutoScrollSetting() {
+      try {
+        const saved = localStorage.getItem('worker_auto_scroll');
+        if (saved !== null) {
+          isAutoScroll = saved === 'true';
+          const chk = document.getElementById('chkAutoScroll');
+          if (chk) chk.checked = isAutoScroll;
+        }
+      } catch (e) {}
+      updateScrollBottomBtn();
+    }
+
+    function toggleAutoScroll(enabled) {
+      isAutoScroll = !!enabled;
+      try {
+        localStorage.setItem('worker_auto_scroll', isAutoScroll ? 'true' : 'false');
+      } catch (e) {}
+      updateScrollBottomBtn();
+      if (isAutoScroll) {
+        scrollToBottom();
+      }
+    }
+
+    function scrollToBottom() {
+      const box = document.getElementById('consoleBox');
+      if (box) box.scrollTop = box.scrollHeight;
+    }
+
+    function updateScrollBottomBtn() {
+      const btn = document.getElementById('btnScrollBottom');
+      if (btn) btn.style.display = isAutoScroll ? 'none' : 'inline-flex';
+    }
     function showToast(msg, isError = false) {
       const toast = document.getElementById('toast');
       toast.style.borderColor = isError ? 'var(--danger)' : 'var(--primary)';
@@ -306,9 +343,15 @@ function renderDashboardHtml() {
         const res = await fetch('/api/logs');
         const text = await res.text();
         const box = document.getElementById('consoleBox');
-        box.innerText = text;
-        if (isAutoScroll) {
-          box.scrollTop = box.scrollHeight;
+        if (!box) return;
+        if (box.textContent !== text) {
+          const prevScrollTop = box.scrollTop;
+          box.textContent = text;
+          if (isAutoScroll) {
+            box.scrollTop = box.scrollHeight;
+          } else {
+            box.scrollTop = prevScrollTop;
+          }
         }
       } catch (e) {
         console.error(e);
@@ -333,13 +376,14 @@ function renderDashboardHtml() {
         const res = await fetch('/api/clear-log', { method: 'POST' });
         const data = await res.json();
         showToast(data.message);
-        document.getElementById('consoleBox').innerText = '';
+        document.getElementById('consoleBox').textContent = '';
       } catch (e) {
         showToast('Lỗi xóa log: ' + e.message, true);
       }
     }
 
     // Polling định kỳ
+    initAutoScrollSetting();
     fetchStatus();
     fetchLogs();
     setInterval(() => {
@@ -429,17 +473,30 @@ server.listen(PORT, () => {
     console.log(`================================================================`);
 });
 
-// GlitchTip LAN Proxy (10.30.1.207:8000 -> 127.0.0.1:8000 WSL GlitchTip)
+// GlitchTip LAN & Local Proxy (10.30.1.207:8000 & 127.0.0.1:8000 -> WSL GlitchTip 8000)
 const net = require('net');
+function getWslIp() {
+    try {
+        const out = execSync('wsl hostname -I', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim().split(/\s+/)[0];
+        if (out) return out;
+    } catch (e) {}
+    return '127.0.0.1';
+}
+
 const glitchTipProxy = net.createServer((client) => {
-    const upstream = net.connect(8000, '127.0.0.1');
+    const upstreamHost = getWslIp();
+    const upstream = net.connect(8000, upstreamHost);
     client.pipe(upstream);
     upstream.pipe(client);
     upstream.on('error', () => client.destroy());
     client.on('error', () => upstream.destroy());
 });
-glitchTipProxy.listen(8000, '10.30.1.207', () => {
-    console.log(`[PROXY] GlitchTip LAN proxy ready at: http://10.30.1.207:8000`);
+
+glitchTipProxy.listen(8000, '0.0.0.0', () => {
+    console.log(`[PROXY] GlitchTip LAN & Local proxy ready at: http://10.30.1.207:8000 & http://localhost:8000`);
 }).on('error', (err) => {
-    console.log('[PROXY] GlitchTip LAN proxy notice:', err.message);
+    console.log('[PROXY] 0.0.0.0 bind notice, fallback to 10.30.1.207:', err.message);
+    try {
+        glitchTipProxy.listen(8000, '10.30.1.207');
+    } catch (e) {}
 });
