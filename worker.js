@@ -166,6 +166,85 @@ function normalizeTimeoutMs(val, defaultMs = 3600000) {
     return Math.round(num);                             // >= 10000 coi là ms
 }
 
+function detectJavaVersion(cwd) {
+    if (!cwd) return 17;
+    const pomPath = path.join(cwd, 'pom.xml');
+    if (fs.existsSync(pomPath)) {
+        try {
+            const pom = fs.readFileSync(pomPath, 'utf8');
+            const m = pom.match(/<(?:java\.version|release|maven\.compiler\.target|maven\.compiler\.release)>(\d+)<\//i);
+            if (m) return parseInt(m[1], 10);
+            if (pom.includes('1.8')) return 8;
+        } catch (e) {}
+    }
+    const gradlePath = path.join(cwd, 'build.gradle');
+    if (fs.existsSync(gradlePath)) {
+        try {
+            const gradle = fs.readFileSync(gradlePath, 'utf8');
+            const m = gradle.match(/(?:sourceCompatibility|targetCompatibility)\s*=\s*['"]?(\d+)['"]?/i);
+            if (m) return parseInt(m[1], 10);
+        } catch (e) {}
+    }
+    return 17;
+}
+
+function resolveProjectJdk(cwd) {
+    const javaVer = detectJavaVersion(cwd);
+    const candidateDirs = [
+        'C:\\Program Files\\Java',
+        'C:\\Program Files\\Eclipse Adoptium',
+        path.join(os.homedir(), '.jdks')
+    ];
+
+    const targetName = javaVer === 8 ? 'jdk-1.8' : `jdk-${javaVer}`;
+    for (const base of candidateDirs) {
+        if (!fs.existsSync(base)) continue;
+        const exact = path.join(base, targetName);
+        if (fs.existsSync(path.join(exact, 'bin', 'javac.exe')) || fs.existsSync(path.join(exact, 'bin', 'javac'))) {
+            return exact;
+        }
+    }
+
+    const verStr = javaVer.toString();
+    for (const base of candidateDirs) {
+        if (!fs.existsSync(base)) continue;
+        try {
+            for (const sub of fs.readdirSync(base)) {
+                if (sub.includes(verStr)) {
+                    const full = path.join(base, sub);
+                    if (fs.existsSync(path.join(full, 'bin', 'javac.exe')) || fs.existsSync(path.join(full, 'bin', 'javac'))) {
+                        return full;
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    for (const base of candidateDirs) {
+        if (!fs.existsSync(base)) continue;
+        const p21 = path.join(base, 'jdk-21');
+        if (fs.existsSync(path.join(p21, 'bin', 'javac.exe'))) {
+            return p21;
+        }
+    }
+
+    return process.env.JAVA_HOME || 'C:\\Program Files\\Java\\jdk-21';
+}
+
+function getExecutionEnv(cwd) {
+    const isJava = cwd && (fs.existsSync(path.join(cwd, 'pom.xml')) || fs.existsSync(path.join(cwd, 'build.gradle')));
+    const env = { ...process.env };
+    if (isJava) {
+        const jdkPath = resolveProjectJdk(cwd);
+        if (jdkPath && fs.existsSync(jdkPath)) {
+            env.JAVA_HOME = jdkPath;
+            const binPath = path.join(jdkPath, 'bin');
+            env.PATH = `${binPath}${path.delimiter}${env.PATH || ''}`;
+        }
+    }
+    return env;
+}
+
 function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false) {
     return new Promise((resolve, reject) => {
         let promptFilePath = null;
@@ -222,6 +301,7 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
             windowsHide: true,
             env: {
                 ...process.env,
+                ...getExecutionEnv(cwd),
                 MCP_TIMEOUT: '60000',
                 MCP_HANDSHAKE_TIMEOUT: '60000',
                 MCP_HANDSHAKE_TIMEOUT_MS: '60000',
@@ -1247,7 +1327,8 @@ function runCommand(cwd, cmd, timeoutMs = 15 * 60 * 1000) {
             encoding: 'utf8',
             timeout: timeoutMs,
             stdio: ['ignore', 'pipe', 'pipe'],
-            maxBuffer: 50 * 1024 * 1024
+            maxBuffer: 50 * 1024 * 1024,
+            env: getExecutionEnv(cwd)
         });
         return { ok: true, output: out || '' };
     } catch (e) {
@@ -1274,24 +1355,6 @@ function hasJacocoPlugin(cwd) {
     return false;
 }
 
-function detectJavaVersion(cwd) {
-    const pomPath = path.join(cwd, 'pom.xml');
-    if (fs.existsSync(pomPath)) {
-        try {
-            const pom = fs.readFileSync(pomPath, 'utf8');
-            const m = pom.match(/<(?:java\.version|release|maven\.compiler\.target|maven\.compiler\.release)>(\d+)<\//i);
-            if (m) return parseInt(m[1], 10);
-            if (pom.includes('1.8') || pom.includes('1.8')) return 8;
-        } catch (e) {}
-    }
-    return 17;
-}
-
-function getJacocoVersionForProject(javaVer) {
-    // JaCoCo 0.8.12 tương thích hoàn hảo từ Java 8 đến Java 22+
-    // Với Java 21+, bắt buộc tối thiểu là 0.8.12 (do hỗ trợ bytecode class 65)
-    return '0.8.12';
-}
 
 function ensureJacocoConfigured(cwd) {
     if (hasJacocoPlugin(cwd)) {
@@ -2176,7 +2239,15 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         try {
             fs.rmSync(path.join(targetServiceDir, 'evidence', issueKey), { recursive: true, force: true });
         } catch (e) { console.warn(`[!] Không dọn được evidence/: ${e.message}`); }
-        // Restore ĐÚNG branch user đang làm việc (không phải baseBranch).
+
+        // Đảm bảo không để lại thay đổi uncommitted (vd pom.xml / build.gradle sau ensureJacocoConfigured nếu job fail)
+        try {
+            const dirty = listDirtyFiles(targetServiceDir);
+            if (dirty.length > 0) {
+                execSync(`git checkout -- pom.xml build.gradle`, { cwd: targetServiceDir, stdio: 'pipe' });
+            }
+        } catch (e) {}
+
         try {
             const restore = originalBranch && originalBranch !== 'HEAD' ? originalBranch : baseBranch;
             execSync(`git checkout ${restore}`, { cwd: targetServiceDir, stdio: 'pipe' });
