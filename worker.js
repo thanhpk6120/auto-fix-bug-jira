@@ -1274,6 +1274,111 @@ function hasJacocoPlugin(cwd) {
     return false;
 }
 
+function detectJavaVersion(cwd) {
+    const pomPath = path.join(cwd, 'pom.xml');
+    if (fs.existsSync(pomPath)) {
+        try {
+            const pom = fs.readFileSync(pomPath, 'utf8');
+            const m = pom.match(/<(?:java\.version|release|maven\.compiler\.target|maven\.compiler\.release)>(\d+)<\//i);
+            if (m) return parseInt(m[1], 10);
+            if (pom.includes('1.8') || pom.includes('1.8')) return 8;
+        } catch (e) {}
+    }
+    return 17;
+}
+
+function getJacocoVersionForProject(javaVer) {
+    // JaCoCo 0.8.12 tương thích hoàn hảo từ Java 8 đến Java 22+
+    // Với Java 21+, bắt buộc tối thiểu là 0.8.12 (do hỗ trợ bytecode class 65)
+    return '0.8.12';
+}
+
+function ensureJacocoConfigured(cwd) {
+    if (hasJacocoPlugin(cwd)) {
+        return { added: false, configured: true };
+    }
+
+    const pomPath = path.join(cwd, 'pom.xml');
+    if (fs.existsSync(pomPath)) {
+        try {
+            let pom = fs.readFileSync(pomPath, 'utf8');
+            const javaVer = detectJavaVersion(cwd);
+            const jacocoVer = getJacocoVersionForProject(javaVer);
+
+            const pluginSnippet = 
+`            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacocoVer}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>`;
+
+            if (pom.includes('</plugins>')) {
+                pom = pom.replace('</plugins>', `${pluginSnippet}\n        </plugins>`);
+            } else if (pom.includes('</build>')) {
+                pom = pom.replace('</build>', `    <plugins>\n${pluginSnippet}\n    </plugins>\n    </build>`);
+            } else if (pom.includes('</project>')) {
+                pom = pom.replace('</project>', `    <build>\n        <plugins>\n${pluginSnippet}\n        </plugins>\n    </build>\n</project>`);
+            } else {
+                return { added: false, configured: false };
+            }
+
+            fs.writeFileSync(pomPath, pom, 'utf8');
+            console.log(`[JACOCO] Đã tự động cấu hình jacoco-maven-plugin ${jacocoVer} cho service (Java ${javaVer}).`);
+            return { added: true, configured: true, version: jacocoVer };
+        } catch (e) {
+            console.error(`[JACOCO] Lỗi khi tự động thêm JaCoCo vào pom.xml: ${e.message}`);
+            return { added: false, configured: false, error: e.message };
+        }
+    }
+
+    const gradlePath = path.join(cwd, 'build.gradle');
+    if (fs.existsSync(gradlePath)) {
+        try {
+            let gradle = fs.readFileSync(gradlePath, 'utf8');
+            const javaVer = detectJavaVersion(cwd);
+            const jacocoVer = getJacocoVersionForProject(javaVer);
+
+            const gradleSnippet = `
+apply plugin: 'jacoco'
+jacoco {
+    toolVersion = "${jacocoVer}"
+}
+jacocoTestReport {
+    reports {
+        xml.required = true
+        csv.required = true
+        html.required = true
+    }
+}
+test.finalizedBy jacocoTestReport
+`;
+            gradle += '\n' + gradleSnippet;
+            fs.writeFileSync(gradlePath, gradle, 'utf8');
+            console.log(`[JACOCO] Đã tự động cấu hình jacoco plugin ${jacocoVer} vào build.gradle.`);
+            return { added: true, configured: true, version: jacocoVer };
+        } catch (e) {
+            console.error(`[JACOCO] Lỗi khi tự động thêm JaCoCo vào build.gradle: ${e.message}`);
+            return { added: false, configured: false, error: e.message };
+        }
+    }
+
+    return { added: false, configured: false };
+}
+
 // Kiểm tra coverage JaCoCo cho đúng các class liên quan tới file vừa sửa.
 // Đọc target/site/jacoco/jacoco.csv: CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED
 function checkCoverageForChangedFiles(cwd, changedFiles, minCoverage = 90) {
@@ -1338,9 +1443,11 @@ function verifyService(cwd, targetService, changedFiles) {
     const isJava = fs.existsSync(path.join(cwd, 'pom.xml')) || fs.existsSync(path.join(cwd, 'build.gradle'));
     const hasPackageJson = fs.existsSync(path.join(cwd, 'package.json'));
     const isApi = isJava || (!hasPackageJson && targetService !== 'web' && !targetService.startsWith('fe-') && !targetService.endsWith('-web'));
-    const hasJacoco = isJava && hasJacocoPlugin(cwd);
+    if (isApi) {
+        ensureJacocoConfigured(cwd);
+    }
+    const hasJacoco = isApi && hasJacocoPlugin(cwd);
     const steps = [];
-
     // 1) Unit test đầy đủ (+ jacoco report nếu api có tích hợp JaCoCo)
     //    Web: nếu có test runner (vitest/jest) → chạy npm test -- --run.
     //    Nếu web chưa cấu hình test runner (như shop-web/cms-web chuẩn Vite FE) → chạy npm run build
@@ -1719,6 +1826,9 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         const isJava = fs.existsSync(path.join(targetServiceDir, 'pom.xml')) || fs.existsSync(path.join(targetServiceDir, 'build.gradle'));
         const hasPackageJson = fs.existsSync(path.join(targetServiceDir, 'package.json'));
         const isWeb = !isJava && (targetService === 'web' || targetService.startsWith('fe-') || targetService.endsWith('-web') || hasPackageJson);
+        if (isJava) {
+            ensureJacocoConfigured(targetServiceDir);
+        }
         const hasJacoco = isJava && hasJacocoPlugin(targetServiceDir);
         let serviceTestCmd = hasJacoco
             ? "'mvnw.cmd -B test jacoco:report' or 'mvn -B test jacoco:report'"
