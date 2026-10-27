@@ -1487,7 +1487,9 @@ function checkCoverageForChangedFiles(cwd, changedFiles, minCoverage = 90) {
         let missed = 0, covered = 0, found = false;
         for (const line of lines.slice(1)) {
             const cells = line.split(',');
-            if (cells[iClass] !== cls) continue;
+            const rawClass = cells[iClass] || '';
+            const classBase = rawClass.split('/').pop().split('.').pop().split('$')[0];
+            if (classBase !== cls) continue;
             found = true;
             missed += parseInt(cells[iMissed] || '0', 10);
             covered += parseInt(cells[iCovered] || '0', 10);
