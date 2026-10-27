@@ -1353,8 +1353,8 @@ function verifyService(cwd, targetService, changedFiles) {
     let testCmd = '';
     if (isApi) {
         testCmd = hasJacoco
-            ? 'mvnw.cmd -B clean test jacoco:report'
-            : 'mvnw.cmd -B clean test';
+            ? 'mvnw.cmd -B test jacoco:report'
+            : 'mvnw.cmd -B test';
     } else if (hasTestScript && hasTestRunner) {
         testCmd = 'npm test -- --run';
     } else {
@@ -1721,8 +1721,8 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         const isWeb = !isJava && (targetService === 'web' || targetService.startsWith('fe-') || targetService.endsWith('-web') || hasPackageJson);
         const hasJacoco = isJava && hasJacocoPlugin(targetServiceDir);
         let serviceTestCmd = hasJacoco
-            ? "'mvnw.cmd -B clean test jacoco:report' or 'mvn -B clean test jacoco:report'"
-            : "'mvnw.cmd -B clean test' or 'mvn -B clean test'";
+            ? "'mvnw.cmd -B test jacoco:report' or 'mvn -B test jacoco:report'"
+            : "'mvnw.cmd -B test' or 'mvn -B test'";
         let commitPrefix = "fix(api)";
         if (isWeb) {
             const pkgPath = path.join(targetServiceDir, 'package.json');
