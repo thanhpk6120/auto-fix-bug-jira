@@ -1609,6 +1609,7 @@ async function processBug(issueKey, summary, description, attachments, projectCo
                 throw new Error(`Đồng bộ source_target thất bại (conflict khi merge origin/${sourceTarget} vào ${targetBranch}): ${syncTargetErr.message}`);
             }
             execSync(`git push ${pushUrl} ${targetBranch}`, { cwd: targetServiceDir, stdio: 'inherit' });
+            execSync(`git fetch origin ${targetBranch}`, { cwd: targetServiceDir, stdio: 'pipe' });
             console.log(`[+] Đã đồng bộ ${sourceTarget} vào ${targetBranch} và push lên remote.`);
         }
 
