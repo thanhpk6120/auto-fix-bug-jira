@@ -14,14 +14,19 @@ Hệ thống áp dụng kiến trúc **Singleton Master Worker**: một tiến t
 
 | Project Key | Thư mục project trong workspace | Service | Repo Git | Stack | Port | Lệnh test |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `PHUB` | `D:/Project/BankHub/services` | `bankhub-admin-be` | `bankhub/bankhub-admin-be` | Java 21 (Spring Boot) | 8080 | `mvnw.cmd -B clean test jacoco:report` |
+| `PHUB` | `D:/Project/BankHub/services` | `bankhub-admin-fe` | `bankhub/bankhub-admin-fe` | React 18 (Vite TS) | 5173 | `npm run build` |
+| `PHUB` | `D:/Project/BankHub/services` | `bankhub-mbb-service` | `bankhub/bankhub-mbb-service` | Java 21 (Spring Boot) | 8082 | `mvnw.cmd -B clean test jacoco:report` |
 | `SHOP` | `services/` | `api` | `thanhpk6120/shop-api` | Java 17/21+ (Spring Boot) | 8080 | `mvnw.cmd -B clean test jacoco:report` |
 | `SHOP` | `services/` | `web` | `thanhpk6120/shop-web` | React 18 (Vite) | 5173 | `npm run build` (repo này KHÔNG có script `test`) |
 | `CMS` | `services-2/` | `api` | `thanhpk6120/cms-api` | Java 17/21+ (Spring Boot) | 8081 | `mvnw.cmd -B clean test jacoco:report` |
 | `CMS` | `services-2/` | `web` | `thanhpk6120/cms-web` | React 18 (Vite) | 5174 | `npm run build` (repo này KHÔNG có script `test`) |
 
-**Ánh xạ nhãn Jira → service:** ticket bắt buộc có nhãn `service:api` hoặc `service:web`. Thiếu nhãn thì worker abort — không được tự đoán service.
+**Ánh xạ nhãn Jira → service:** ticket bắt buộc có nhãn `service:<service-name>` (ví dụ: `service:bankhub-admin-be`, `service:bankhub-admin-fe`, `service:bankhub-mbb-service`, hoặc `service:api`, `service:web`). Thiếu nhãn thì worker abort — không được tự đoán service.
 
-**Quy tắc nhánh Git (áp dụng cho cả 4 service):** `dev` → `master`, `target` → `staging`, `prod` → `master`.
+**Quy tắc nhánh Git:**
+- Dự án `PHUB`: `source_target` (`dev`) ➔ `target` (`dev-auto-bug`), `source_staging` (`deploy/k8s`) ➔ `staging` (`deploy/k8s-auto-bug`).
+- Dự án `SHOP`/`CMS`: `dev` → `master`, `target` → `staging`, `prod` → `master`.
 
 > **Lưu ý Sentry:** Cả frontend và backend đều đã tích hợp Sentry SDK (`@sentry/react` và `sentry-spring-boot-starter-jakarta`). Lỗi sẽ tự động được gửi về GlitchTip qua `SENTRY_DSN`, không dùng Jira API thủ công.
 
