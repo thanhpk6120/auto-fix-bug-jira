@@ -245,6 +245,20 @@ function getExecutionEnv(cwd) {
     return env;
 }
 
+let cachedClaudePath = null;
+function getClaudeExecutable() {
+    if (cachedClaudePath && fs.existsSync(cachedClaudePath)) return cachedClaudePath;
+    try {
+        const out = execSync('where.exe claude', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+        const firstLine = out.split(/\r?\n/)[0].trim();
+        if (firstLine && fs.existsSync(firstLine)) {
+            cachedClaudePath = firstLine;
+            return cachedClaudePath;
+        }
+    } catch (e) {}
+    return 'claude';
+}
+
 function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false) {
     return new Promise((resolve, reject) => {
         let promptFilePath = null;
@@ -258,7 +272,13 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
                 fs.mkdirSync(tmpDir, { recursive: true });
                 promptFilePath = path.join(tmpDir, `tmp_prompt_${Date.now()}.md`);
                 fs.writeFileSync(promptFilePath, prompt, 'utf8');
-                effectivePrompt = `Đọc kỹ và thực thi toàn bộ yêu cầu trong file sau: "${promptFilePath}". Tuân thủ chính xác từng bước.`;
+                const normalizedPath = path.resolve(promptFilePath);
+                effectivePrompt = [
+                    'Hãy đọc kỹ và thực thi toàn bộ yêu cầu, chỉ dẫn được chỉ định trong tệp sau:',
+                    `Đường dẫn tuyệt đối: ${normalizedPath}`,
+                    '',
+                    'BẮT BUỘC: Bạn phải mở và đọc toàn bộ nội dung tệp trên trước khi thực hiện bất kỳ hành động nào, sau đó tuân thủ 100% các quy tắc và chỉ dẫn trong tệp đó để hoàn thành nhiệm vụ.'
+                ].join('\n');
             } catch (e) {
                 console.warn(`[!] Không tạo được dispatch prompt file, fallback prompt inline: ${e.message}`);
                 effectivePrompt = prompt;
@@ -295,9 +315,12 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
             args.push('--append-system-prompt', fs.readFileSync(WORKER_RULES_FILE, 'utf8'));
         }
 
+        const effectiveClaudeCmd = getClaudeExecutable();
+        const isBatch = effectiveClaudeCmd.endsWith('.cmd') || effectiveClaudeCmd.endsWith('.bat');
+
         const options = {
             cwd,
-            shell: false,
+            shell: isBatch,
             windowsHide: true,
             env: {
                 ...process.env,
@@ -305,12 +328,13 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
                 MCP_TIMEOUT: '60000',
                 MCP_HANDSHAKE_TIMEOUT: '60000',
                 MCP_HANDSHAKE_TIMEOUT_MS: '60000',
-                ENABLE_TOOL_SEARCH: 'true'
+                // Tối ưu từ ai-worker: Tắt tool search tự động thừa thãi để tiết kiệm token và tăng tốc phản hồi
+                ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH || 'false'
             },
             stdio: ['pipe', 'pipe', 'pipe']
         };
 
-        const child = spawn('claude', args, options);
+        const child = spawn(effectiveClaudeCmd, args, options);
 
         // Đóng stdin ngay lập tức (EOF) để Claude Code non-interactive không bao giờ treo đợi TTY
         try { child.stdin.end(); } catch (e) {}
@@ -320,7 +344,9 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
         let accumulatedFinalResult = '';
         let accumulatedStderr = '';
         let isTimedOut = false;
-
+        let lastThoughtNorm = '';
+        let thoughtRepeatCount = 0;
+        let stallWarned = false;
         // Watchdog timer với Safe Tree-Kill trên Windows
         const timer = setTimeout(() => {
             isTimedOut = true;
@@ -365,6 +391,17 @@ function runClaude(prompt, cwd, timeout = CLAUDE_TIMEOUT, captureOutput = false)
                             } else if (c.type === 'thinking' && c.thinking) {
                                 const thoughtFirstLine = c.thinking.trim().split('\n')[0].slice(0, 140);
                                 process.stdout.write(`\x1b[36m[AGENT THOUGHT]\x1b[0m ${thoughtFirstLine}...\n`);
+                                const norm = thoughtFirstLine.trim();
+                                if (norm && norm === lastThoughtNorm) {
+                                    thoughtRepeatCount += 1;
+                                    if (thoughtRepeatCount >= 3 && !stallWarned) {
+                                        stallWarned = true;
+                                        process.stdout.write(`\n\x1b[33m[STALL]\x1b[0m Phát hiện suy luận/thought lặp 3 lần liên tiếp — agent có thể đang kẹt.\n`);
+                                    }
+                                } else if (norm) {
+                                    lastThoughtNorm = norm;
+                                    thoughtRepeatCount = 1;
+                                }
                             }
                         }
                     } else if (t === 'user') {

@@ -27,12 +27,45 @@ if (fs.existsSync(envPath)) {
 const PORT = parseInt(process.env.DASHBOARD_PORT || '8880', 10);
 const PID_FILE = path.join(__dirname, 'evidences', 'worker.pid');
 const LOG_FILE = path.join(__dirname, 'evidences', 'worker.log');
+const DASHBOARD_PID_FILE = path.join(__dirname, 'evidences', 'dashboard.pid');
+const DASHBOARD_LOG_FILE = path.join(__dirname, 'evidences', 'dashboard.log');
 
 // Đảm bảo thư mục evidences/ tồn tại
 if (!fs.existsSync(path.join(__dirname, 'evidences'))) {
-    fs.mkdirSync(path.join(__dirname, 'evidences'), { recursive: true });
+    try { fs.mkdirSync(path.join(__dirname, 'evidences'), { recursive: true }); } catch (e) {}
 }
 
+try {
+    fs.writeFileSync(DASHBOARD_PID_FILE, process.pid.toString(), 'utf8');
+} catch (e) {}
+
+const cleanDashboardPid = () => {
+    try {
+        if (fs.existsSync(DASHBOARD_PID_FILE)) {
+            const currentSaved = fs.readFileSync(DASHBOARD_PID_FILE, 'utf8').trim();
+            if (currentSaved === process.pid.toString()) {
+                fs.unlinkSync(DASHBOARD_PID_FILE);
+            }
+        }
+    } catch (e) {}
+};
+process.on('exit', cleanDashboardPid);
+process.on('SIGINT', () => { cleanDashboardPid(); process.exit(0); });
+process.on('SIGTERM', () => { cleanDashboardPid(); process.exit(0); });
+
+try {
+    const dashLogStream = fs.createWriteStream(DASHBOARD_LOG_FILE, { flags: 'a' });
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stdout.write = function (chunk, encoding, callback) {
+        try { dashLogStream.write(chunk); } catch (e) {}
+        return origStdoutWrite(chunk, encoding, callback);
+    };
+    process.stderr.write = function (chunk, encoding, callback) {
+        try { dashLogStream.write(chunk); } catch (e) {}
+        return origStderrWrite(chunk, encoding, callback);
+    };
+} catch (e) {}
 let workerProcess = null;
 
 // Hàm kiểm tra tiến trình worker có đang sống trên OS không

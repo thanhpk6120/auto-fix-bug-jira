@@ -1,25 +1,14 @@
 @echo off
-title Jira-AutoFix-Dashboard
 cd /d "%~dp0"
-
-echo ========================================================
-echo   KHOI DONG JIRA AUTO-FIX WORKER WEB DASHBOARD
-echo ========================================================
-
-if not exist ".env" (
-    echo [CANH BAO] Khong tim thay file .env tai thu muc goc!
-    echo Vui long tao file .env truoc khi chay.
+node daemon-control.js start dashboard
+if %ERRORLEVEL% equ 0 (
+    echo.
+    echo [OK] Dashboard dang chay ngam (an hoan toan). Cua so se tu dong dong sau 2 giay...
+    timeout /t 2 >nul
+    exit /b 0
+) else (
+    echo.
+    echo [LOI] Khong khoi dong duoc Dashboard. Xem chi tiet trong evidences/dashboard.log
     pause
     exit /b 1
-)
-
-echo [INFO] Dang khoi dong Web Dashboard tai cong 8880...
-echo [INFO] Truy cap: http://localhost:8880 hoac http://10.30.1.207:8880
-echo.
-
-node --env-file=.env dashboard.js
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [LOI] Dashboard da dung voi ma loi %ERRORLEVEL%.
-    pause
 )

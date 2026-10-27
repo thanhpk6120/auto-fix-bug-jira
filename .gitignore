@@ -33,6 +33,8 @@ services/shop-web/
 # Settings & MCP do worker sinh lúc chạy (chứa đường dẫn tuyệt đối của máy)
 .claude/settings.generated.json
 .claude/mcp.generated.json
+.claude/tmp_prompt_*.md
+.claude/tmp_prompt_*.txt
 
 # Thùng rác (file đã bị loại khỏi repo — giữ lại để có thể khôi phục, không commit)
 .trash/

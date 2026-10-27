@@ -1,26 +1,14 @@
 @echo off
-title Jira-AutoFix-Worker
 cd /d "%~dp0"
-
-echo ========================================================
-echo   KHOI DONG JIRA AUTO-FIX WORKER
-echo ========================================================
-
-if not exist ".env" (
-    echo [CANH BAO] Khong tim thay file .env tai thu muc goc!
-    echo Vui long tao file .env (copy tu .env.example) truoc khi chay.
+node daemon-control.js start worker
+if %ERRORLEVEL% equ 0 (
     echo.
+    echo [OK] Worker dang chay ngam (an hoan toan). Cua so se tu dong dong sau 2 giay...
+    timeout /t 2 >nul
+    exit /b 0
+) else (
+    echo.
+    echo [LOI] Khong khoi dong duoc Worker. Xem chi tiet trong evidences/worker.log
     pause
     exit /b 1
-)
-
-echo [INFO] Dang khoi dong Singleton Master Worker (worker.js)...
-echo [INFO] Luu y: Cau hinh MAX_CONCURRENT_JOBS nam trong file .env
-echo.
-
-node --env-file=.env worker.js
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [LOI] Worker da dung voi ma loi %ERRORLEVEL%.
-    pause
 )
