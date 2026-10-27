@@ -1354,7 +1354,11 @@ function hasJacocoPlugin(cwd) {
     }
     return false;
 }
-
+function getJacocoVersionForProject(javaVer) {
+    // JaCoCo 0.8.12 tương thích hoàn hảo từ Java 8 đến Java 22+
+    // Với Java 21+, bắt buộc tối thiểu là 0.8.12 (do hỗ trợ bytecode class 65)
+    return '0.8.12';
+}
 
 function ensureJacocoConfigured(cwd) {
     if (hasJacocoPlugin(cwd)) {
@@ -1506,11 +1510,24 @@ function verifyService(cwd, targetService, changedFiles) {
     const isJava = fs.existsSync(path.join(cwd, 'pom.xml')) || fs.existsSync(path.join(cwd, 'build.gradle'));
     const hasPackageJson = fs.existsSync(path.join(cwd, 'package.json'));
     const isApi = isJava || (!hasPackageJson && targetService !== 'web' && !targetService.startsWith('fe-') && !targetService.endsWith('-web'));
-    if (isApi) {
-        ensureJacocoConfigured(cwd);
+
+    let jacocoInject = null;
+    if (isApi && !hasJacocoPlugin(cwd)) {
+        jacocoInject = ensureJacocoConfigured(cwd);
     }
-    const hasJacoco = isApi && hasJacocoPlugin(cwd);
+    const hasJacoco = isApi && (hasJacocoPlugin(cwd) || (jacocoInject && jacocoInject.configured));
     const steps = [];
+
+    // Hàm hỗ trợ hoàn nguyên file pom.xml / build.gradle nếu worker tự tiêm tạm thời
+    const revertJacocoIfNeeded = () => {
+        if (jacocoInject && jacocoInject.added) {
+            try {
+                console.log('[JACOCO] Hoàn nguyên file cấu hình pom.xml / build.gradle sau khi đo coverage để giữ repo sạch.');
+                execSync(`git checkout -- pom.xml build.gradle`, { cwd, stdio: 'pipe' });
+            } catch (e) {}
+        }
+    };
+
     // 1) Unit test đầy đủ (+ jacoco report nếu api có tích hợp JaCoCo)
     //    Web: nếu có test runner (vitest/jest) → chạy npm test -- --run.
     //    Nếu web chưa cấu hình test runner (như shop-web/cms-web chuẩn Vite FE) → chạy npm run build
@@ -1536,6 +1553,7 @@ function verifyService(cwd, targetService, changedFiles) {
     const testRes = runCommand(cwd, testCmd);
     steps.push({ step: 'test', cmd: testCmd, ok: testRes.ok });
     if (!testRes.ok) {
+        revertJacocoIfNeeded();
         console.error('[TEST] THẤT BẠI — không merge.');
         console.error(testRes.output.slice(-4000));
         return { ok: false, step: 'test', steps, output: testRes.output };
@@ -1547,6 +1565,7 @@ function verifyService(cwd, targetService, changedFiles) {
             const cov = checkCoverageForChangedFiles(cwd, changedFiles, 90);
             steps.push({ step: 'coverage', ok: cov.ok, details: cov.details, reason: cov.reason });
             if (!cov.ok) {
+                revertJacocoIfNeeded();
                 console.error('[COVERAGE] THẤT BẠI — coverage chưa đạt cho các class liên quan.');
                 console.error(JSON.stringify(cov.details, null, 2));
                 if (cov.reason) console.error(cov.reason);
@@ -1558,6 +1577,10 @@ function verifyService(cwd, targetService, changedFiles) {
             steps.push({ step: 'coverage', ok: true, skipped: true, reason: 'Dự án chưa cấu hình JaCoCo' });
         }
     }
+
+    // Luôn dọn dẹp cấu hình JaCoCo tạm thời sau khi đo coverage để working tree 100% sạch trước khi build & merge
+    revertJacocoIfNeeded();
+
     // 3) Build — bắt lỗi biên dịch
     const buildCmd = isApi
         ? 'mvnw.cmd -B -DskipTests package'
@@ -1889,13 +1912,9 @@ async function processBug(issueKey, summary, description, attachments, projectCo
         const isJava = fs.existsSync(path.join(targetServiceDir, 'pom.xml')) || fs.existsSync(path.join(targetServiceDir, 'build.gradle'));
         const hasPackageJson = fs.existsSync(path.join(targetServiceDir, 'package.json'));
         const isWeb = !isJava && (targetService === 'web' || targetService.startsWith('fe-') || targetService.endsWith('-web') || hasPackageJson);
-        if (isJava) {
-            ensureJacocoConfigured(targetServiceDir);
-        }
-        const hasJacoco = isJava && hasJacocoPlugin(targetServiceDir);
-        let serviceTestCmd = hasJacoco
-            ? "'mvnw.cmd -B test jacoco:report' or 'mvn -B test jacoco:report'"
-            : "'mvnw.cmd -B test' or 'mvn -B test'";
+        let serviceTestCmd = isJava
+            ? "'mvnw.cmd -B test jacoco:report' or 'mvn -B test'"
+            : "'npm test' or 'npm run build'";
         let commitPrefix = "fix(api)";
         if (isWeb) {
             const pkgPath = path.join(targetServiceDir, 'package.json');
@@ -1962,7 +1981,8 @@ STEPS (follow strictly, in order):
    - For Java: JUnit 5 + Mockito, one test class per changed class, name the test class <Class>Test.java under src/test/java mirroring the main package.
    - For JavaScript/TypeScript: a test file mirroring the source file.
    - Do NOT write empty/trivial assertions (e.g. assertTrue(true)) to inflate coverage. Every assertion must verify real behaviour.
-${hasJacoco ? '   - For Java the coverage of every class you changed MUST be >= 90% (the worker reads the report at target/site/jacoco/jacoco.csv and rejects the fix otherwise). Write enough test cases to reach that — do not weaken assertions to fit.\n' : ''}   - Do NOT weaken or delete existing tests.
+   - For Java: The coverage of every class you changed MUST be >= 90% (the worker evaluates coverage via JaCoCo and rejects the fix otherwise). Write enough test cases to reach that — do not weaken assertions to fit.
+   - Do NOT weaken or delete existing tests.
 4. SAVE the verification output into 'evidence/${issueKey}/after' (relative to your current working directory).
    - You MAY run a quick targeted test to check your own work, but DO NOT run the full
      build/test suite: the worker runs '${serviceTestCmd}' itself after you finish.
