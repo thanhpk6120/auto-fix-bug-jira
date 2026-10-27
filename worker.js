@@ -515,7 +515,12 @@ const PENDING_FILE = path.join(__dirname, 'pending-prs.json');
 const evidenceHelper = require('./evidence.js');
 
 
-const getReproPrompt = () => "Reproduce the bug. Priority: 1. Read Jira description for domain/URL and error details. 2. If no URL or access fails, inspect source code and test locally. 3. SAVE EVIDENCE logs into the directory 'evidence/{JIRA_KEY}/before' (create it; it is relative to your current working directory, which is the service repo). The evidence MUST be real files produced by the reproduction (stack trace, log output, failing test output) - an empty or placeholder file does not count. 4. IF CANNOT REPRODUCE, clearly explain the exact reasons in Vietnamese (e.g. source code inspection findings, all unit tests pass, synthetic/fake test event, missing endpoints, etc.), and STOP by printing: [AI_STOP] <Detailed explanation in Vietnamese of why the bug cannot be reproduced>";
+const getReproPrompt = () => "Reproduce the bug. STRICT SCOPE & FOCUS RULES:\n" +
+    "1. Stay 100% inside your current working directory (the service repo: 'src/main' and 'src/test'). DO NOT search or access parent directory ('..'), do not inspect other repos, do not check 'worker.js', do not read shell history.\n" +
+    "2. Locate the class/method/file causing the error mentioned in the bug title/stack trace by directly searching inside 'src/'.\n" +
+    "3. Reproduce the failure by writing a targeted test case or running local verification, and SAVE real EVIDENCE logs into 'evidence/{JIRA_KEY}/before' (stack trace, test output, error details).\n" +
+    "4. Clean up any temporary repro files before proceeding so working tree stays clean.\n" +
+    "5. IF CANNOT REPRODUCE after inspecting the codebase, explain clearly in Vietnamese why the bug cannot be reproduced (e.g. synthetic test event, error string not found in codebase, all tests pass), and STOP by printing: [AI_STOP] <Detailed explanation in Vietnamese>";
 
 // Trích xuất lý do AI không thể tái hiện lỗi từ output của Claude
 function extractReproStopReason(output) {
