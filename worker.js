@@ -1278,40 +1278,6 @@ async function addJiraComment(issueKey, commentBody) {
     }
 }
 
-async function updateJiraDescription(issueKey, newDescription) {
-    try {
-        const bodyPayload = isJiraCloud
-            ? {
-                type: "doc",
-                version: 1,
-                content: [{ type: "paragraph", content: [{ type: "text", text: newDescription }] }]
-            }
-            : newDescription;
-
-        const res = await fetch(`https://${JIRA_DOMAIN}/rest/api/${JIRA_API_VER}/issue/${issueKey}`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': authHeader,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                fields: {
-                    description: bodyPayload
-                }
-            })
-        });
-        if (!res.ok) {
-            console.error(`[!] Không cập nhật được description cho ${issueKey}: HTTP ${res.status}`);
-            return false;
-        }
-        console.log(`[JIRA] Đã cập nhật chi tiết lỗi & stack trace vào Description của ${issueKey}.`);
-        return true;
-    } catch (e) {
-        console.error(`[!] Lỗi cập nhật description cho ${issueKey}: ${e.message}`);
-        return false;
-    }
-}
-
 // --- PHÂN LOẠI FILE ---
 // Artifact build: không tính là thay đổi thật (một số repo vô tình track chúng).
 function isArtifactPath(f) {
@@ -1982,30 +1948,22 @@ async function processBug(issueKey, summary, description, attachments, projectCo
                 `\n[STACKTRACE]\n${glitchTipDetails.stacktrace}\n\n` +
                 `[ORIGINAL JIRA DESCRIPTION]\n${rawError}`;
 
-            // Đồng bộ bổ sung stack trace trực tiếp vào phần Description của Jira issue (thay vì comment)
+            // Đồng bộ bổ sung stack trace vào Jira comment nếu Jira description chưa có stack trace
             if (!String(description).includes('at ')) {
                 try {
-                    let updatedDescription = typeof description === 'string' ? description.trim() : '';
-                    const stackTraceBlock =
-                        `\n\n📋 *[GlitchTip Stack Trace Chi Tiết]*\n` +
+                    await addJiraComment(
+                        issueKey,
+                        `📋 *[GlitchTip Stack Trace Chi Tiết]*\n` +
                         `- *Lỗi:* ${glitchTipDetails.exceptionType}: ${glitchTipDetails.exceptionValue}\n` +
                         `- *Culprit:* ${glitchTipDetails.culprit}\n` +
                         (glitchTipDetails.filename ? `- *Vị trí:* ${glitchTipDetails.filename} (${glitchTipDetails.functionName})\n\n` : '\n') +
                         `*Stack Trace:*\n` +
                         `{code:java}\n` +
                         `${glitchTipDetails.stacktrace}\n` +
-                        `{code}`;
-
-                    updatedDescription = updatedDescription
-                        ? `${updatedDescription}${stackTraceBlock}`
-                        : stackTraceBlock.trim();
-
-                    const ok = await updateJiraDescription(issueKey, updatedDescription);
-                    if (ok) {
-                        description = updatedDescription;
-                    }
+                        `{code}`
+                    );
                 } catch (e) {
-                    console.warn(`[!] Không cập nhật được Description trên Jira: ${e.message}`);
+                    console.warn(`[!] Không thêm được comment stacktrace vào Jira: ${e.message}`);
                 }
             }
         }

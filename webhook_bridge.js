@@ -180,12 +180,7 @@ async function handleWebhook(req, res, parsedUrl) {
         let stacktraceSection = '';
         const glitchTipDetails = await fetchGlitchTipDetails(webUrl);
         if (glitchTipDetails && glitchTipDetails.stacktrace) {
-            stacktraceSection =
-                `\n\n📋 *[GlitchTip Stack Trace Chi Tiết]*\n` +
-                `- *Lỗi:* ${glitchTipDetails.exceptionType}: ${glitchTipDetails.exceptionValue}\n` +
-                `- *Culprit:* ${glitchTipDetails.culprit}\n` +
-                (glitchTipDetails.filename ? `- *Vị trí:* ${glitchTipDetails.filename} (${glitchTipDetails.functionName})\n\n` : '\n') +
-                `*Stack Trace:*\n{code:java}\n${glitchTipDetails.stacktrace}\n{code}`;
+            stacktraceSection = `\n\n*Stack Trace chi tiết:*\n{code:java}\n${glitchTipDetails.stacktrace}\n{code}`;
         }
 
         const safeWebUrl = (webUrl || '').replace(/10\.30\.1\.200:8000/g, '10.30.1.207:8000');
