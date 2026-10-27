@@ -1487,9 +1487,8 @@ function checkCoverageForChangedFiles(cwd, changedFiles, minCoverage = 90) {
         let missed = 0, covered = 0, found = false;
         for (const line of lines.slice(1)) {
             const cells = line.split(',');
-            const rawClass = cells[iClass] || '';
-            const classBase = rawClass.split('/').pop().split('.').pop().split('$')[0];
-            if (classBase !== cls) continue;
+            const shortClass = (cells[iClass] || '').split('/').pop();
+            if (shortClass !== cls && !shortClass.startsWith(cls + '.') && !shortClass.startsWith(cls + '$')) continue;
             found = true;
             missed += parseInt(cells[iMissed] || '0', 10);
             covered += parseInt(cells[iCovered] || '0', 10);
@@ -1690,7 +1689,10 @@ async function checkCiPipeline(gitRepo, branchName) {
         let last = { status: 'skipped', detail: 'Không xác định được trạng thái pipeline.' };
         for (let attempt = 1; attempt <= CI_POLL_MAX; attempt++) {
             last = await getPipelineOnce(gitRepo, branchName);
-            if (last.status === 'ok' || last.status === 'failed' || last.status === 'skipped') return last;
+            if (last.status === 'ok' || last.status === 'failed' || last.status === 'skipped') {
+                console.log(`[CI] ${last.detail}`);
+                return last;
+            }
             if (attempt < CI_POLL_MAX) {
                 console.log(`[CI] ${last.detail} (lần ${attempt}/${CI_POLL_MAX}) — chờ ${CI_POLL_INTERVAL_MS / 1000}s...`);
                 await new Promise(r => setTimeout(r, CI_POLL_INTERVAL_MS));
