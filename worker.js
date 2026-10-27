@@ -1487,6 +1487,61 @@ async function checkCiPipeline(gitRepo, branchName) {
     }
 }
 
+const GLITCHTIP_API_URL = (process.env.GLITCHTIP_API_URL || 'http://10.30.1.207:8000').trim().replace(/\/+$/, '');
+const GLITCHTIP_API_TOKEN = (process.env.GLITCHTIP_API_TOKEN || '2d80da1416547825f38cc064ea3667614e38bfd44c0862d4d560281dbafe24c6').trim();
+
+async function fetchGlitchTipDetails(issueUrlOrText) {
+    if (!issueUrlOrText || !GLITCHTIP_API_TOKEN) return null;
+    const str = typeof issueUrlOrText === 'string' ? issueUrlOrText : JSON.stringify(issueUrlOrText);
+    const m = str.match(/\/issues\/(\d+)/);
+    if (!m) return null;
+    const issueId = m[1];
+    const url = `${GLITCHTIP_API_URL}/api/0/issues/${issueId}/events/latest/`;
+    try {
+        const res = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${GLITCHTIP_API_TOKEN}` }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+
+        let stacktrace = '';
+        let exceptionType = '';
+        let exceptionValue = '';
+        const culprit = data.culprit || '';
+        const metadata = data.metadata || {};
+
+        for (const entry of (data.entries || [])) {
+            if (entry.type === 'exception') {
+                for (const val of (entry.data?.values || [])) {
+                    exceptionType = val.type || '';
+                    exceptionValue = val.value || '';
+                    stacktrace += `${exceptionType}: ${exceptionValue}\n`;
+                    const frames = val.stacktrace?.frames || [];
+                    for (const f of frames) {
+                        const filePart = f.filename ? `${f.filename}:${f.lineNo || ''}` : '';
+                        const funcPart = f.function ? `.${f.function}` : '';
+                        stacktrace += `    at ${f.module || ''}${funcPart}(${filePart})\n`;
+                    }
+                }
+            }
+        }
+
+        return {
+            issueId,
+            title: data.title || '',
+            culprit,
+            metadata,
+            exceptionType: exceptionType || metadata.type || '',
+            exceptionValue: exceptionValue || metadata.value || '',
+            filename: metadata.filename || '',
+            functionName: metadata.function || '',
+            stacktrace: stacktrace.trim()
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
 async function processBug(issueKey, summary, description, attachments, projectConfig, labels) {
     let currentStep = 'Khởi tạo và phân giải cấu hình service';
     const contextInfo = {
@@ -1675,8 +1730,61 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         contextInfo.step = currentStep;
         fs.rmSync(path.join(WORKER_ROOT, 'evidence', issueKey), { recursive: true, force: true });
         evidenceHelper.ensureEvidenceDir(issueKey);
-        const errorContent = typeof description === 'string' ? description : (JSON.stringify(description) || summary);
+
+        // Trích xuất chi tiết lỗi từ GlitchTip API (stacktrace, culprit, metadata) nếu có
+        const glitchTipDetails = await fetchGlitchTipDetails(description);
+        let errorContent = typeof description === 'string' ? description : (JSON.stringify(description) || summary);
+
+        if (glitchTipDetails && glitchTipDetails.stacktrace) {
+            errorContent = `[GLITCHTIP EXCEPTION DETAILS]\n` +
+                `Type: ${glitchTipDetails.exceptionType}\n` +
+                `Value: ${glitchTipDetails.exceptionValue}\n` +
+                `Culprit: ${glitchTipDetails.culprit}\n` +
+                (glitchTipDetails.filename ? `Source: ${glitchTipDetails.filename}:${glitchTipDetails.functionName}\n` : '') +
+                `\n[STACKTRACE]\n${glitchTipDetails.stacktrace}\n\n` +
+                `[ORIGINAL JIRA DESCRIPTION]\n${errorContent}`;
+
+            // Đồng bộ bổ sung stack trace vào Jira comment nếu Jira description chưa có stack trace
+            if (!String(description).includes('at ')) {
+                try {
+                    await addJiraComment(
+                        issueKey,
+                        `📋 *[GlitchTip Stack Trace Chi Tiết]*\n` +
+                        `- *Lỗi:* ${glitchTipDetails.exceptionType}: ${glitchTipDetails.exceptionValue}\n` +
+                        `- *Culprit:* ${glitchTipDetails.culprit}\n` +
+                        (glitchTipDetails.filename ? `- *Vị trí:* ${glitchTipDetails.filename} (${glitchTipDetails.functionName})\n\n` : '\n') +
+                        `*Stack Trace:*\n` +
+                        `{code:java}\n` +
+                        `${glitchTipDetails.stacktrace}\n` +
+                        `{code}`
+                    );
+                } catch (e) {
+                    console.warn(`[!] Không thêm được comment stacktrace vào Jira: ${e.message}`);
+                }
+            }
+        }
+
         evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, errorContent);
+
+        let errorLocationHtml = '';
+        let stacktracePreviewHtml = '';
+        if (glitchTipDetails) {
+            if (glitchTipDetails.filename) {
+                errorLocationHtml = `• <b>Vị trí:</b> <code>${escapeHtml(glitchTipDetails.filename)}</code> (${escapeHtml(glitchTipDetails.functionName || '')})\n`;
+            } else if (glitchTipDetails.culprit) {
+                errorLocationHtml = `• <b>Endpoint/Culprit:</b> <code>${escapeHtml(glitchTipDetails.culprit)}</code>\n`;
+            }
+            if (glitchTipDetails.stacktrace) {
+                const previewLines = glitchTipDetails.stacktrace.split('\n').slice(0, 6).join('\n');
+                stacktracePreviewHtml = `\n📋 <b>Stack Trace:</b>\n<pre>${escapeHtml(previewLines)}</pre>\n`;
+            }
+        } else if (typeof description === 'string' && description.includes('{code}')) {
+            const m = description.match(/\{code(?::\w+)?\}([\s\S]*?)\{code\}/);
+            if (m && m[1].trim()) {
+                const previewLines = m[1].trim().split('\n').slice(0, 6).join('\n');
+                stacktracePreviewHtml = `\n📋 <b>Log lỗi:</b>\n<pre>${escapeHtml(previewLines)}</pre>\n`;
+            }
+        }
 
         // ALERT 1: Gửi thông báo phát hiện lỗi & đang xử lý kèm file log lỗi ban đầu về Telegram
         const alert1Msg = `🚨 <b>PHÁT HIỆN LỖI MỚI & BẮT ĐẦU XỬ LÝ (LEVEL 3)</b>\n\n` +
@@ -1684,9 +1792,10 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
             `• <b>Dự án:</b> ${escapeHtml(projectConfig.name || projectConfig.projectKey)}\n` +
             `• <b>Service:</b> <code>${escapeHtml(targetService)}</code> (<code>${escapeHtml(gitRepo)}</code>)\n` +
             `• <b>Branch:</b> <code>${escapeHtml(branchName)}</code> (base: <code>${escapeHtml(baseBranch)}</code>)\n` +
-            `• <b>Tóm tắt:</b> ${escapeHtml(summary)}\n\n` +
-            `⏳ <i>Đang tiến hành tái hiện lỗi (Repro Bug) và phân tích mã nguồn...</i>`;
-
+            `• <b>Tóm tắt:</b> ${escapeHtml(summary)}\n` +
+            errorLocationHtml +
+            stacktracePreviewHtml +
+            `\n⏳ <i>Đang tiến hành tái hiện lỗi (Repro Bug) và phân tích mã nguồn...</i>`;
         const alert1Keyboard = {
             inline_keyboard: [
                 [

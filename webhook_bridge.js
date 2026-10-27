@@ -30,8 +30,61 @@ const jiraApiVer = isJiraCloud ? '3' : '2';
 const jiraAuth = (env.JIRA_TOKEN && (env.JIRA_TOKEN.startsWith('Bearer ') || !isJiraCloud))
     ? (env.JIRA_TOKEN.startsWith('Bearer ') ? env.JIRA_TOKEN : `Bearer ${env.JIRA_TOKEN}`)
     : 'Basic ' + Buffer.from(`${env.JIRA_EMAIL}:${env.JIRA_TOKEN}`).toString('base64');
+const GLITCHTIP_API_URL = (env.GLITCHTIP_API_URL || 'http://10.30.1.207:8000').trim().replace(/\/+$/, '');
+const GLITCHTIP_API_TOKEN = (env.GLITCHTIP_API_TOKEN || '2d80da1416547825f38cc064ea3667614e38bfd44c0862d4d560281dbafe24c6').trim();
 
-// Helper tìm service name từ projectKey và projectSlug của GlitchTip
+async function fetchGlitchTipDetails(issueUrlOrText) {
+    if (!issueUrlOrText || !GLITCHTIP_API_TOKEN) return null;
+    const str = typeof issueUrlOrText === 'string' ? issueUrlOrText : JSON.stringify(issueUrlOrText);
+    const m = str.match(/\/issues\/(\d+)/);
+    if (!m) return null;
+    const issueId = m[1];
+    const apiUrl = `${GLITCHTIP_API_URL}/api/0/issues/${issueId}/events/latest/`;
+    try {
+        const res = await fetch(apiUrl, {
+            headers: { 'Authorization': `Bearer ${GLITCHTIP_API_TOKEN}` }
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+
+        let stacktrace = '';
+        let exceptionType = '';
+        let exceptionValue = '';
+        const culprit = data.culprit || '';
+        const metadata = data.metadata || {};
+
+        for (const entry of (data.entries || [])) {
+            if (entry.type === 'exception') {
+                for (const val of (entry.data?.values || [])) {
+                    exceptionType = val.type || '';
+                    exceptionValue = val.value || '';
+                    stacktrace += `${exceptionType}: ${exceptionValue}\n`;
+                    const frames = val.stacktrace?.frames || [];
+                    for (const f of frames) {
+                        const filePart = f.filename ? `${f.filename}:${f.lineNo || ''}` : '';
+                        const funcPart = f.function ? `.${f.function}` : '';
+                        stacktrace += `    at ${f.module || ''}${funcPart}(${filePart})\n`;
+                    }
+                }
+            }
+        }
+
+        return {
+            issueId,
+            title: data.title || '',
+            culprit,
+            metadata,
+            exceptionType: exceptionType || metadata.type || '',
+            exceptionValue: exceptionValue || metadata.value || '',
+            filename: metadata.filename || '',
+            functionName: metadata.function || '',
+            stacktrace: stacktrace.trim()
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
 function resolveServiceLabel(projectKey, projectSlug, explicitService) {
     if (explicitService) {
         return `service:${explicitService}`;
@@ -124,8 +177,13 @@ async function handleWebhook(req, res, parsedUrl) {
         const queryService = parsedUrl.query && parsedUrl.query.service;
         const serviceLabel = resolveServiceLabel(projectKey, projectSlug, queryService);
         console.log(`[Webhook Bridge] Map GlitchTip project '${projectSlug}' -> Label '${serviceLabel}'`);
+        let stacktraceSection = '';
+        const glitchTipDetails = await fetchGlitchTipDetails(webUrl);
+        if (glitchTipDetails && glitchTipDetails.stacktrace) {
+            stacktraceSection = `\n\n*Stack Trace chi tiết:*\n{code:java}\n${glitchTipDetails.stacktrace}\n{code}`;
+        }
 
-        const descText = `Webhook từ GlitchTip\nProject: ${projectSlug}\nCulprit: ${culprit}\nLink GlitchTip: ${webUrl}`;
+        const descText = `*Môi trường:* production\n*Dự án / Service:* ${projectSlug}\n*Vị trí lỗi (Culprit):* ${culprit || (glitchTipDetails && glitchTipDetails.culprit) || 'N/A'}\n*Link GlitchTip / Sentry:* ${webUrl}${stacktraceSection}`;
         const descriptionPayload = isJiraCloud
             ? {
                 type: 'doc',
@@ -133,7 +191,6 @@ async function handleWebhook(req, res, parsedUrl) {
                 content: [{ type: 'paragraph', content: [{ type: 'text', text: descText }] }]
             }
             : descText;
-
         const jiraPayload = {
             fields: {
                 project: { key: projectKey },

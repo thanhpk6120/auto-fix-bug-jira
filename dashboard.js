@@ -236,7 +236,7 @@ function renderDashboardHtml() {
           <div class="info-item"><span class="info-label">Jira Domain:</span><span id="infoJiraDomain" class="info-val">Loading...</span></div>
           <div class="info-item"><span class="info-label">Jira User:</span><span id="infoJiraEmail" class="info-val">Loading...</span></div>
           <div class="info-item"><span class="info-label">Cổng Dashboard:</span><span class="info-val">${PORT}</span></div>
-          <div class="info-item"><span class="info-label">GlitchTip Server:</span><span class="info-val">10.30.1.200:8000</span></div>
+          <div class="info-item"><span class="info-label">GlitchTip Server:</span><span class="info-val">localhost:8000</span></div>
           <div class="info-item"><span class="info-label">Webhook Bridge (K8s):</span><span class="info-val">10.30.1.136:30950</span></div>
         </div>
       </div>
