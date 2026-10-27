@@ -1704,27 +1704,6 @@ async function processBug(issueKey, summary, description, attachments, projectCo
             serviceTestCmd = hasWebTest ? "'npm test'" : "'npm run build'";
             commitPrefix = "fix(web)";
         }
-        const fixPrompt = `Fix bug: ${summary}. ${attachmentInfo}
-
-STEPS (follow strictly, in order):
-1. LOCATE the bug by reading the source code and the error details. The service is '${targetService}'.
-2. FIX it with minimal changes inside the 'src' directory. Do not touch unrelated files.
-3. WRITE COMPLETE UNIT TESTS for every class/method/function you changed or that directly depends on the change:
-   - Cover ALL relevant cases: success, edge cases, boundary values, invalid input, null/empty, exceptions.
-   - For Java: JUnit 5 + Mockito, one test class per changed class, name the test class <Class>Test.java under src/test/java mirroring the main package.
-   - For JavaScript/TypeScript: a test file mirroring the source file.
-   - Do NOT write empty/trivial assertions (e.g. assertTrue(true)) to inflate coverage. Every assertion must verify real behaviour.
-   - For Java the coverage of every class you changed MUST be >= 90% (the worker reads the report at target/site/jacoco/jacoco.csv and rejects the fix otherwise). Write enough test cases to reach that — do not weaken assertions to fit.
-   - Do NOT weaken or delete existing tests.
-4. SAVE the verification output into 'evidence/${issueKey}/after' (relative to your current working directory).
-   - You MAY run a quick targeted test to check your own work, but DO NOT run the full
-     build/test suite: the worker runs '${serviceTestCmd}' itself after you finish.
-5. COMMIT your changes with 'git commit -m "${commitPrefix}: ..."' using the required conventional-commit prefix.
-   - DO NOT commit anything from the 'evidence' folder.
-   - Only ONE commit for the whole fix.
-
-Do not fail. Do not ask questions. Make sure the tests you wrote are complete and correct, then commit and stop.`;
-
         // Dọn dẹp evidence cũ của ticket này (nếu có)
         currentStep = 'Khởi tạo evidence ban đầu & gửi Alert 1 Telegram';
         contextInfo.step = currentStep;
@@ -1733,7 +1712,9 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
 
         // Trích xuất chi tiết lỗi từ GlitchTip API (stacktrace, culprit, metadata) nếu có
         const glitchTipDetails = await fetchGlitchTipDetails(description);
-        let errorContent = typeof description === 'string' ? description : (JSON.stringify(description) || summary);
+        let rawError = typeof description === 'string' ? description : (JSON.stringify(description) || summary);
+        rawError = rawError.replace(/10\.30\.1\.200:8000/g, '10.30.1.207:8000');
+        let errorContent = rawError;
 
         if (glitchTipDetails && glitchTipDetails.stacktrace) {
             errorContent = `[GLITCHTIP EXCEPTION DETAILS]\n` +
@@ -1742,7 +1723,7 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
                 `Culprit: ${glitchTipDetails.culprit}\n` +
                 (glitchTipDetails.filename ? `Source: ${glitchTipDetails.filename}:${glitchTipDetails.functionName}\n` : '') +
                 `\n[STACKTRACE]\n${glitchTipDetails.stacktrace}\n\n` +
-                `[ORIGINAL JIRA DESCRIPTION]\n${errorContent}`;
+                `[ORIGINAL JIRA DESCRIPTION]\n${rawError}`;
 
             // Đồng bộ bổ sung stack trace vào Jira comment nếu Jira description chưa có stack trace
             if (!String(description).includes('at ')) {
@@ -1765,6 +1746,33 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         }
 
         evidenceHelper.saveEvidence(issueKey, 'before', `${issueKey}_error.txt`, errorContent);
+
+        const fixPrompt = `Fix bug: ${summary}.
+
+ERROR DETAILS & STACKTRACE:
+${errorContent}
+
+${attachmentInfo}
+
+STEPS (follow strictly, in order):
+1. LOCATE the bug by reading the source code and the error details above. The service is '${targetService}'.
+2. FIX it with minimal changes inside the 'src' directory. Do not touch unrelated files.
+3. WRITE COMPLETE UNIT TESTS for every class/method/function you changed or that directly depends on the change:
+   - Cover ALL relevant cases: success, edge cases, boundary values, invalid input, null/empty, exceptions.
+   - For Java: JUnit 5 + Mockito, one test class per changed class, name the test class <Class>Test.java under src/test/java mirroring the main package.
+   - For JavaScript/TypeScript: a test file mirroring the source file.
+   - Do NOT write empty/trivial assertions (e.g. assertTrue(true)) to inflate coverage. Every assertion must verify real behaviour.
+   - For Java the coverage of every class you changed MUST be >= 90% (the worker reads the report at target/site/jacoco/jacoco.csv and rejects the fix otherwise). Write enough test cases to reach that — do not weaken assertions to fit.
+   - Do NOT weaken or delete existing tests.
+4. SAVE the verification output into 'evidence/${issueKey}/after' (relative to your current working directory).
+   - You MAY run a quick targeted test to check your own work, but DO NOT run the full
+     build/test suite: the worker runs '${serviceTestCmd}' itself after you finish.
+5. COMMIT your changes with 'git commit -m "${commitPrefix}: ..."' using the required conventional-commit prefix.
+   - DO NOT commit anything from the 'evidence' folder.
+   - Only ONE commit for the whole fix.
+
+Do not fail. Do not ask questions. Make sure the tests you wrote are complete and correct, then commit and stop.`;
+
 
         let errorLocationHtml = '';
         let stacktracePreviewHtml = '';
@@ -1816,7 +1824,8 @@ Do not fail. Do not ask questions. Make sure the tests you wrote are complete an
         const timeoutMinutes = Math.round(CLAUDE_TIMEOUT / 60000);
         console.log(`[+] Bước 1: Repro Bug (Model: ${CLAUDE_MODEL}, Timeout: ${timeoutMinutes} phút / ${CLAUDE_TIMEOUT}ms)...`);
         const reproPrompt = getReproPrompt().replace(/\{JIRA_KEY\}/g, issueKey);
-        const reproOutput = await runClaude(`Bug: ${summary}. ${reproPrompt}`, worktreeDir, CLAUDE_TIMEOUT, true);
+        const reproFullPrompt = `Bug: ${summary}\n\nERROR DETAILS & STACKTRACE:\n${errorContent}\n\n${reproPrompt}`;
+        const reproOutput = await runClaude(reproFullPrompt, worktreeDir, CLAUDE_TIMEOUT, true);
         console.log(reproOutput);
         if (reproOutput.includes('[AI_STOP]')) {
             const reason = extractReproStopReason(reproOutput);

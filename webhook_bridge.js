@@ -183,7 +183,8 @@ async function handleWebhook(req, res, parsedUrl) {
             stacktraceSection = `\n\n*Stack Trace chi tiết:*\n{code:java}\n${glitchTipDetails.stacktrace}\n{code}`;
         }
 
-        const descText = `*Môi trường:* production\n*Dự án / Service:* ${projectSlug}\n*Vị trí lỗi (Culprit):* ${culprit || (glitchTipDetails && glitchTipDetails.culprit) || 'N/A'}\n*Link GlitchTip / Sentry:* ${webUrl}${stacktraceSection}`;
+        const safeWebUrl = (webUrl || '').replace(/10\.30\.1\.200:8000/g, '10.30.1.207:8000');
+        const descText = `*Môi trường:* production\n*Dự án / Service:* ${projectSlug}\n*Vị trí lỗi (Culprit):* ${culprit || (glitchTipDetails && glitchTipDetails.culprit) || 'N/A'}\n*Link GlitchTip / Sentry:* ${safeWebUrl}${stacktraceSection}`;
         const descriptionPayload = isJiraCloud
             ? {
                 type: 'doc',
