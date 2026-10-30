@@ -1,0 +1,139 @@
+{
+  "maxConcurrentJobs": 3,
+  "workspaces": [
+    {
+      "id": "bankhub",
+      "name": "PartnerHub Bank Platform",
+      "workspaceRoot": "D:/Project/BankHub/services",
+      "concurrencyLimit": 1,
+      "jira": {
+        "projectKeys": [
+          "PHUB"
+        ],
+        "projectNames": [
+          "PartnerHub Bank System"
+        ]
+      },
+      "services": [
+        {
+          "name": "bankhub-admin-be",
+          "folder": "bankhub-admin-be",
+          "jiraMapping": {
+            "components": [
+              "Admin Backend",
+              "BE",
+              "admin-be",
+              "admin-service"
+            ],
+            "aliases": [
+              "bankhub-admin-be",
+              "admin-service"
+            ],
+            "packagePrefix": "vn.bankhub.admin"
+          },
+          "branches": {
+            "target": "dev-auto-bug",
+            "staging": "deploy/k8s-auto-bug",
+            "source_target": "dev",
+            "source_staging": "deploy/k8s",
+            "prod": "main"
+          }
+        },
+        {
+          "name": "bankhub-admin-fe",
+          "folder": "bankhub-admin-fe",
+          "jiraMapping": {
+            "components": [
+              "Admin Frontend",
+              "FE",
+              "admin-fe",
+              "admin-ui"
+            ],
+            "aliases": [
+              "bankhub-admin-fe",
+              "admin-ui"
+            ]
+          },
+          "branches": {
+            "target": "dev-auto-bug",
+            "staging": "deploy/k8s-auto-bug",
+            "source_target": "dev",
+            "source_staging": "deploy/k8s",
+            "prod": "main"
+          }
+        },
+        {
+          "name": "bankhub-mbb-service",
+          "folder": "bankhub-mbb-service",
+          "jiraMapping": {
+            "components": [
+              "MBB Service",
+              "mbb"
+            ],
+            "aliases": [
+              "bankhub-mbb-service",
+              "mbb-service"
+            ],
+            "packagePrefix": "vn.bankhub.mbb"
+          },
+          "branches": {
+            "target": "dev-auto-bug",
+            "staging": "deploy/k8s-auto-bug",
+            "source_target": "dev",
+            "source_staging": "deploy/k8s",
+            "prod": "main"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shop",
+      "name": "Shop Platform",
+      "workspaceRoot": "services",
+      "concurrencyLimit": 1,
+      "enabled": false,
+      "jira": {
+        "projectKeys": [
+          "SHOP"
+        ],
+        "projectNames": [
+          "Shop Project",
+          "Shop App"
+        ]
+      },
+      "services": [
+        {
+          "name": "api",
+          "folder": "shop-api",
+          "jiraMapping": {
+            "components": [
+              "Backend",
+              "Shop API",
+              "API"
+            ],
+            "packagePrefix": "com.poc"
+          },
+          "branches": {
+            "target": "staging",
+            "prod": "master"
+          }
+        },
+        {
+          "name": "web",
+          "folder": "shop-web",
+          "jiraMapping": {
+            "components": [
+              "Frontend",
+              "Shop Web",
+              "Web UI"
+            ]
+          },
+          "branches": {
+            "target": "staging",
+            "prod": "master"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "_comment": "Cấu hình Multi-Project Workspace Architecture cho Master Worker & Web Dashboard.",
+  "maxConcurrentJobs": 3,
+  "workspaces": [
+    {
+      "id": "partnerhub",
+      "name": "PartnerHub Bank Platform",
+      "workspaceRoot": "D:/Project/BankHub/services",
+      "concurrencyLimit": 1,
+      "enabled": true,
+      "jira": {
+        "projectKeys": [
+          "PHUB"
+        ],
+        "projectNames": [
+          "PartnerHub Bank System"
+        ]
+      },
+      "services": [
+        {
+          "name": "bankhub-admin-be",
+          "folder": "bankhub-admin-be",
+          "jiraMapping": {
+            "components": [
+              "admin-be",
+              "backend",
+              "admin-api"
+            ],
+            "packagePrefix": "vn.bankhub.admin",
+            "aliases": [
+              "bankhub-admin-be",
+              "admin-be"
+            ]
+          },
+          "branches": {
+            "target": "dev-auto-bug",
+            "staging": "deploy/k8s-auto-bug",
+            "source_target": "dev",
+            "source_staging": "deploy/k8s",
+            "prod": "main"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shop",
+      "name": "Shop Platform",
+      "workspaceRoot": "services",
+      "concurrencyLimit": 1,
+      "enabled": false,
+      "jira": {
+        "projectKeys": [
+          "SHOP"
+        ],
+        "projectNames": [
+          "Shop E-commerce"
+        ]
+      },
+      "services": [
+        {
+          "name": "api",
+          "folder": "shop-api",
+          "gitRepo": "thanhpk6120/shop-api",
+          "branches": {
+            "target": "staging",
+            "prod": "master"
+          }
+        }
+      ]
+    }
+  ]
+}
